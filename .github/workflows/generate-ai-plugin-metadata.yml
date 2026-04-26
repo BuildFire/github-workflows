@@ -31,16 +31,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install shared automation dependencies
-        working-directory: shared-automation
-        run: npm ci
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex
 
-      - name: Generate AI metadata
-        working-directory: shared-automation
-        run: npm run generate-ai-metadata
+      - name: Run Codex metadata generation
+        working-directory: plugin-repo
         env:
           OPENAI_API_KEY: ${{ secrets.PLUGIN_AI_METADATA_OPENAI_API_KEY }}
-          PLUGIN_REPO_PATH: ${{ github.workspace }}/plugin-repo
+        run: |
+          codex exec --full-auto "$(cat ../shared-automation/prompts/plugin-ai-metadata.prompt.md)"
 
       - name: Create PR if metadata changed
         uses: peter-evans/create-pull-request@v6
