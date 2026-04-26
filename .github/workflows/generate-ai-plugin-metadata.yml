@@ -3,7 +3,7 @@ name: Generate AI Plugin Metadata (Reusable)
 on:
   workflow_call:
     secrets:
-      OPENAI_API_KEY:
+      PLUGIN_AI_METADATA_OPENAI_API_KEY:
         required: true
 
 permissions:
@@ -17,23 +17,35 @@ jobs:
     steps:
       - name: Checkout plugin repo
         uses: actions/checkout@v4
+        with:
+          path: plugin-repo
+
+      - name: Checkout shared automation repo
+        uses: actions/checkout@v4
+        with:
+          repository: BuildFire/.github
+          path: shared-automation
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install dependencies
+      - name: Install shared automation dependencies
+        working-directory: shared-automation
         run: npm ci
 
       - name: Generate AI metadata
-        run: npm run ai:scan
+        working-directory: shared-automation
+        run: npm run generate-ai-metadata
         env:
           OPENAI_API_KEY: ${{ secrets.PLUGIN_AI_METADATA_OPENAI_API_KEY }}
+          PLUGIN_REPO_PATH: ${{ github.workspace }}/plugin-repo
 
       - name: Create PR if metadata changed
         uses: peter-evans/create-pull-request@v6
         with:
+          path: plugin-repo
           commit-message: "chore: update AI plugin metadata"
           title: "chore: update AI plugin metadata"
           body: |
