@@ -29,20 +29,12 @@ jobs:
           path: shared-automation
           token: ${{ secrets.PLUGIN_AI_METADATA_GH_TOKEN }}
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install Codex CLI
-        run: npm install -g @openai/codex
-
       - name: Run Codex metadata generation
-        working-directory: plugin-repo
-        env:
-          CODEX_API_KEY: ${{ secrets.PLUGIN_AI_METADATA_OPENAI_API_KEY }}
-        run: |
-          codex exec --full-auto "$(cat ../shared-automation/prompts/plugin-ai-metadata.prompt.md)"
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.PLUGIN_AI_METADATA_OPENAI_API_KEY }}
+          working-directory: plugin-repo
+          prompt-file: ../shared-automation/prompts/plugin-ai-metadata.prompt.md
 
       - name: Create PR if metadata changed
         uses: peter-evans/create-pull-request@v6
