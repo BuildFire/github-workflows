@@ -37,7 +37,6 @@ jobs:
           prompt-file: shared-automation/prompts/plugin-ai-metadata.prompt.md
           model: gpt-5.4-mini
           effort: medium
-          codex-version: latest
 
       - name: Create PR if metadata changed
         uses: peter-evans/create-pull-request@v6
