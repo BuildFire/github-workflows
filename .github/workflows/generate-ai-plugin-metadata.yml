@@ -5,6 +5,8 @@ on:
     secrets:
       PLUGIN_AI_METADATA_OPENAI_API_KEY:
         required: true
+      PLUGIN_AI_METADATA_GH_TOKEN:
+        required: true
 
 permissions:
   contents: write
@@ -25,6 +27,7 @@ jobs:
         with:
           repository: BuildFire/github-workflows
           path: shared-automation
+          token: ${{ secrets.PLUGIN_AI_METADATA_GH_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
