@@ -1,0 +1,47 @@
+name: Generate AI Plugin Metadata (Reusable)
+
+on:
+  workflow_call:
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout plugin repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate AI metadata
+        run: npm run ai:scan
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Create PR if metadata changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: update AI plugin metadata"
+          title: "chore: update AI plugin metadata"
+          body: |
+            Auto-generated AI metadata files.
+
+            Updated:
+            - ai/plugin.plan.json
+            - ai/plugin.index.json
+            - ai/plugin.mcp.json
+          branch: chore/update-ai-plugin-metadata
+          delete-branch: true
