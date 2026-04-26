@@ -40,7 +40,7 @@ jobs:
       - name: Run Codex metadata generation
         working-directory: plugin-repo
         env:
-          OPENAI_API_KEY: ${{ secrets.PLUGIN_AI_METADATA_OPENAI_API_KEY }}
+          CODEX_API_KEY: ${{ secrets.PLUGIN_AI_METADATA_OPENAI_API_KEY }}
         run: |
           codex exec --full-auto "$(cat ../shared-automation/prompts/plugin-ai-metadata.prompt.md)"
 
