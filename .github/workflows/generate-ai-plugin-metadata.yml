@@ -23,7 +23,7 @@ jobs:
       - name: Checkout shared automation repo
         uses: actions/checkout@v4
         with:
-          repository: BuildFire/.github
+          repository: BuildFire/github-workflows
           path: shared-automation
 
       - name: Setup Node
