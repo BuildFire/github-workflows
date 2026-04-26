@@ -1,0 +1,11 @@
+{
+  "name": "buildfire-shared-github-automation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate-ai-metadata": "node scripts/generate-ai-metadata.js"
+  },
+  "dependencies": {
+    "openai": "^6.16.0"
+  }
+}
