@@ -29,7 +29,7 @@ jobs:
       - name: Generate AI metadata
         run: npm run ai:scan
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.PLUGIN_AI_METADATA_OPENAI_API_KEY }}
 
       - name: Create PR if metadata changed
         uses: peter-evans/create-pull-request@v6
