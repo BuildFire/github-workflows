@@ -20,7 +20,7 @@ Their purpose:
   Compact semantic file manifest so AI can quickly understand what files exist and which files may need to be read for future updates.
 
 - .buildfire/plugin.mcp.json:
-  Compact MCP-safe data operation contract so AI tools can safely read, create, update, remove, archive, reorder, and manage plugin data without needing the full architecture every time.
+  Compact MCP-safe data operation contract so AI tools can safely read, create, update, remove, archive, reorder, export, and manage plugin data without needing the full architecture every time.
 
 This is a MUST:
 - Read all relevant files deeply.
@@ -39,6 +39,10 @@ This is a MUST:
   - buildfire.auth
   - buildfire.navigation
   - buildfire.analytics
+  - buildfire.userData
+  - buildfire.appData
+  - buildfire.imageLib
+  - buildfire.notifications
 - Do NOT redesign the plugin.
 - Do NOT idealize the architecture.
 - Do NOT invent behavior.
@@ -68,9 +72,10 @@ Scan strategy:
 - Start from plugin.json to understand structure.
 - Identify widget entry points.
 - Identify control panel entry points: content, design, settings.
-- Trace data flow from control → datastore → widget.
+- Trace data flow from control → datastore/appData/userData → widget.
 - Identify BuildFire SDK usage points.
 - Build a mental architecture map before generating output.
+- Generate the plan first, then derive the compact index and compact MCP contract from the plan.
 
 Ignore:
 - .buildfire/**
@@ -103,7 +108,7 @@ If any behavior, schema, or data flow is not clearly supported by code evidence:
 - Prefer omission over hallucination.
 
 Priority order:
-1. Understand data layer: datastore, settings, content.
+1. Understand data layer: datastore, appData, userData, settings, content.
 2. Understand execution flows.
 3. Map files and dependencies.
 4. Generate .buildfire/plugin.plan.json.
@@ -118,6 +123,8 @@ Output quality rules:
 - Keep .buildfire/plugin.mcp.json strict, compact, and operation-focused.
 - Keep source/evidence/file-level details in .buildfire/plugin.plan.json and .buildfire/plugin.index.json.
 - Do not put source file references in .buildfire/plugin.mcp.json unless absolutely required for data safety.
+- Do not quote large code blocks inside any metadata file.
+- Avoid duplicating the same safety rules repeatedly. Use shared defaults in plugin.mcp.json.
 
 ============================================================
 FILE 1: .buildfire/plugin.plan.json
@@ -136,6 +143,12 @@ It must allow another AI session to understand:
 - how updates should be done safely
 
 plugin.plan.json MUST be implementation-aware and update-safe.
+
+Target size guidance:
+- Small/simple plugin: 10 KB - 25 KB is acceptable.
+- Medium plugin: 25 KB - 60 KB is acceptable.
+- Large plugin: 60 KB - 120 KB is acceptable only when complexity requires it.
+- Avoid bloating the plan with repetitive file descriptions, generated assets, or copied code.
 
 Create .buildfire/plugin.plan.json with this exact top-level structure:
 
@@ -186,6 +199,11 @@ Create .buildfire/plugin.plan.json with this exact top-level structure:
     "highRiskAreas": [],
     "safeRefactorZones": [],
     "antiPatterns": []
+  },
+  "quality": {
+    "overallConfidence": "high | medium | low",
+    "coverageNotes": [],
+    "knownGaps": []
   }
 }
 
@@ -203,7 +221,7 @@ Explain what user/business problem this plugin solves.
 Explain the real architecture:
 - widget responsibilities
 - control panel responsibilities
-- datastore/data ownership
+- datastore/appData/userData ownership
 - initialization flow
 - rendering flow
 - save/load flow
@@ -216,7 +234,7 @@ List real architectural/design principles used by the plugin:
 - separation of widget/control
 - state management approach
 - BuildFire SDK usage patterns
-- datastore ownership
+- data ownership
 - UI rendering approach
 - validation approach
 - maintainability decisions
@@ -254,8 +272,8 @@ For each important flow, include:
 Include flows such as:
 - widget initialization
 - control initialization
-- datastore load
-- datastore save
+- datastore/appData/userData load
+- datastore/appData/userData save
 - settings save
 - content save
 - design save
@@ -266,7 +284,10 @@ Include flows such as:
 - navigation
 - authentication if applicable
 - data sync if applicable
+- exports if applicable
 - any plugin-specific important behavior
+
+Do not list every tiny function as a flow. Include only flows that matter for understanding, maintenance, or data safety.
 
 7. dataContracts
 For each important data structure, include:
@@ -277,7 +298,7 @@ For each important data structure, include:
   "usedBy": [],
   "ownedBy": "widget | control | shared | external",
   "storage": {
-    "type": "buildfire.datastore | localStorage | externalApi | inMemory | unknown",
+    "type": "buildfire.datastore | buildfire.appData | buildfire.userData | localStorage | externalApi | inMemory | unknown",
     "key": "",
     "collection": "",
     "scope": "app | user | global | instance | unknown"
@@ -300,7 +321,7 @@ For each important data structure, include:
 }
 
 Include:
-- datastore records
+- datastore/appData/userData records
 - settings objects
 - content objects
 - design objects
@@ -309,8 +330,13 @@ Include:
 - internal state objects
 - records that MCP may need to manage
 
+For very large nested schemas:
+- Include top-level fields and important nested paths.
+- Do not exhaustively list every deeply nested field unless MCP or safe updates require it.
+- Mark unknown nested structures as object/array with notes rather than inventing fields.
+
 8. fileMap
-Every important source file MUST be listed.
+Every important source/config file MUST be listed.
 
 Each fileMap entry MUST include:
 
@@ -335,13 +361,17 @@ Each fileMap entry MUST include:
 }
 
 Rules for fileMap:
-- Be specific.
+- Be specific but concise.
 - Explain why the file exists.
 - Explain what logic the file owns.
 - Explain what files or runtime flows depend on it.
 - Explain what can break if changed incorrectly.
 - Explain where future updates should be made.
 - Do NOT use generic phrases like "handles UI" or "main logic".
+- Do NOT include ignored binary assets.
+- Do NOT list every trivial documentation file unless it affects architecture or data safety.
+- For CSS files, focus on ownership and high-risk DOM/class dependencies only.
+- For resource assets, summarize important resources only.
 
 9. integrationPoints
 List BuildFire SDK usage and any external/internal integrations:
@@ -359,10 +389,14 @@ List BuildFire SDK usage and any external/internal integrations:
 
 Examples:
 - buildfire.datastore
+- buildfire.appData
+- buildfire.userData
 - buildfire.auth
 - buildfire.navigation
 - buildfire.components
 - buildfire.analytics
+- buildfire.notifications
+- buildfire.imageLib
 - localStorage/sessionStorage
 - Firebase
 - external APIs
@@ -430,6 +464,7 @@ Summarize what MCP should care about:
 - supported data operations
 - whether .buildfire/plugin.mcp.json exists
 - whether MCP can safely manage this plugin data
+- which data should be read-only for MCP
 
 14. aiContext
 This is only for future AI maintainers.
@@ -440,6 +475,12 @@ Include:
 - highRiskAreas: files/areas that require extra care
 - safeRefactorZones: areas that can be cleaned up with lower risk
 - antiPatterns: things future AI must never do
+
+15. quality
+Include:
+- overallConfidence: high, medium, or low
+- coverageNotes: what was confidently understood
+- knownGaps: files, schemas, or behaviors that were unclear or not fully traceable
 
 ============================================================
 FILE 2: .buildfire/plugin.index.json
@@ -454,6 +495,11 @@ Its purpose:
 - let AI decide what files to request/read
 - provide quick lookup for file purpose and risk
 - avoid sending full plugin.plan.json every time
+
+Target size guidance:
+- Aim for 5 KB - 20 KB.
+- Large plugins may reach 25 KB - 35 KB, but avoid bigger unless necessary.
+- Keep each file description short.
 
 Create .buildfire/plugin.index.json with this exact top-level structure:
 
@@ -481,6 +527,12 @@ Create .buildfire/plugin.index.json with this exact top-level structure:
     "config": 0,
     "mcpRelevant": 0
   },
+  "entrypoints": {
+    "widget": [],
+    "control": [],
+    "shared": []
+  },
+  "dataFiles": [],
   "files": []
 }
 
@@ -508,7 +560,13 @@ Rules:
 - Keep descriptions compact.
 - This is a manifest, not the full architecture.
 - Do not duplicate all plugin.plan.json details.
-- Mark files involved in datastore/data operations as mcpRelevant: true.
+- Mark files involved in datastore/appData/userData operations as mcpRelevant: true.
+- Use entrypoints to quickly identify widget/control/shared startup files.
+- Use dataFiles to quickly identify files that touch datastore/appData/userData or important schemas.
+- Do not include binary assets.
+- Do not include every CSS file unless it is important for layout/behavior or DOM coupling.
+- For large helper libraries, provide compact purpose and risk only.
+- Avoid long dependency lists. Include only direct/important dependencies.
 
 ============================================================
 FILE 3: .buildfire/plugin.mcp.json
@@ -527,11 +585,18 @@ The MCP should be able to use plugin.mcp.json to understand:
 - what fields should never be touched
 - how to create records
 - how to update records
-- how to remove/archive/reorder records
+- how to remove/archive/reorder/export records
 - what human confirmation is required
 - how to avoid breaking the plugin
 
 plugin.mcp.json MUST be compact, strict, and operation-focused.
+
+Target size guidance:
+- Ideal: 10 KB - 20 KB.
+- Acceptable for complex plugins: 20 KB - 30 KB.
+- Avoid 40 KB+ unless the plugin truly exposes many safe MCP-managed data operations.
+- If the plugin has many stores or operations, prioritize safe operational summaries over exhaustive schemas.
+- Use defaults to avoid repeating the same matchingRules, resultShape, conflictHandling, and safety rules across operations.
 
 Do NOT include full UI architecture here.
 Do NOT include CSS details.
@@ -539,6 +604,7 @@ Do NOT include long file explanations.
 Do NOT include sourceFiles.
 Do NOT include implementation file references unless absolutely required for data safety.
 Do NOT make this heavy.
+Do NOT include every nested field from large records unless MCP is expected to write those fields.
 
 The MCP file should answer only:
 - What data can be managed?
@@ -560,6 +626,12 @@ If confidence is not "high":
 - Disable write operations.
 - Require human confirmation for all updates.
 - Do not allow destructive remove/delete operations.
+
+Default MCP safety posture:
+- Plugin configuration/content/settings may be writable if the code clearly supports safe updates.
+- User-generated data, submissions, logs, analytics, audit records, and historical records should be read-only by default.
+- Do not expose create/update operations for submissions or user-generated records unless the plugin clearly supports admin correction workflows and safe matching rules.
+- When unsure, expose read/export only.
 
 Never allow:
 - schema changes
@@ -585,6 +657,27 @@ Create .buildfire/plugin.mcp.json with this exact top-level structure:
     "safeDefaultBehavior": "",
     "mustAskBefore": [],
     "neverDo": []
+  },
+  "defaults": {
+    "conflictHandling": {
+      "readBeforeWrite": true,
+      "preserveUnknownFields": true,
+      "detectChangedSincePreview": true,
+      "onConflict": "ask_user"
+    },
+    "matchingRules": {
+      "preferredMatchFields": [],
+      "allowIndexMatch": false,
+      "requiresUniqueMatch": true,
+      "ifMultipleMatches": "ask_user",
+      "ifNoMatch": "ask_user"
+    },
+    "resultShape": {
+      "success": "boolean",
+      "message": "string",
+      "changedFields": "array",
+      "preview": "object"
+    }
   },
   "dataStores": [],
   "operations": [],
@@ -621,17 +714,22 @@ toolSummary fields:
 - neverDo:
   Short list of actions MCP must never perform automatically.
 
-dataStores entries MUST use this structure:
+defaults rules:
+- Use defaults to avoid repeated matchingRules, conflictHandling, and resultShape.
+- Operations and dataStores may omit fields that match defaults if the default is clearly applicable.
+- If a specific operation/store needs different behavior, include the override only on that operation/store.
+
+dataStores entries MUST use this compact structure:
 
 {
   "name": "",
   "description": "",
-  "buildfireApi": "buildfire.datastore | unknown",
+  "buildfireApi": "buildfire.datastore | buildfire.appData | buildfire.userData | unknown",
   "storageKey": "",
   "collection": "",
   "recordType": "",
   "ownership": "app | user | global | instance | unknown",
-  "writeStrategy": "read_merge_save | insert_record | update_record | unknown",
+  "writeStrategy": "read_merge_save | insert_record | update_record | read_only | unknown",
   "conflictHandling": {
     "readBeforeWrite": true,
     "preserveUnknownFields": true,
@@ -659,25 +757,11 @@ dataStores entries MUST use this structure:
   "identityFields": [],
   "displayFields": [],
   "systemManagedFields": [],
-  "validationRules": [
-    {
-      "field": "",
-      "rule": "",
-      "reason": "",
-      "errorMessage": ""
-    }
-  ],
+  "validationRules": [],
   "createRules": [],
   "updateRules": [],
   "removeRules": [],
-  "relationships": [
-    {
-      "field": "",
-      "references": "",
-      "relationshipType": "one-to-one | one-to-many | many-to-many | unknown",
-      "notes": ""
-    }
-  ],
+  "relationships": [],
   "examples": {
     "create": {},
     "update": {},
@@ -688,10 +772,18 @@ dataStores entries MUST use this structure:
   "notes": []
 }
 
+Data store compactness rules:
+- Include only fields MCP needs to safely read/write/manage data.
+- For read-only stores, keep schema high-level and do not exhaustively list every nested field.
+- For user submissions, analytics, logs, or historical records, default to writeStrategy "read_only" unless safe admin write behavior is clearly implemented.
+- For large answer/submission objects, prefer fields like user, answers, timestamps, status, score, and system fields rather than listing every answer subfield.
+- Include dangerousFields, identityFields, readOnlyFields, and systemManagedFields clearly even when the schema is compact.
+
 writeStrategy rules:
 - Use "read_merge_save" when the plugin stores a shared object and writes require reading the current object, merging requested changes, preserving unknown fields, and saving the full object back.
 - Use "insert_record" when the plugin creates separate records using insert-style behavior.
 - Use "update_record" when the plugin updates individual records without replacing shared parent data.
+- Use "read_only" when MCP should only read/export this store.
 - Use "unknown" when write behavior is unclear.
 - If writeStrategy is "read_merge_save", MCP must never save a partial object that could erase unrelated fields.
 
@@ -700,13 +792,14 @@ conflictHandling rules:
 - preserveUnknownFields should be true unless the schema explicitly says unknown fields should be dropped.
 - detectChangedSincePreview should be true for operations requiring confirmation, preview, identity changes, remove, reorder, or bulk update.
 - onConflict should usually be "ask_user".
+- If the store uses the default conflictHandling, include it only if needed for clarity.
 
-operations entries MUST use this structure:
+operations entries MUST use this compact structure:
 
 {
   "name": "",
   "description": "",
-  "operationType": "create | read | update | remove | archive | reorder | bulk_update | bulk_remove | unknown",
+  "operationType": "create | read | update | remove | archive | reorder | bulk_update | bulk_remove | export | unknown",
   "availability": "allowed | allowed_with_confirmation | unsupported",
   "targetStore": "",
   "requiredInput": {},
@@ -732,11 +825,19 @@ operations entries MUST use this structure:
     "changedFields": "array",
     "preview": "object"
   },
-  "exampleUserRequests": [],
   "exampleToolInput": {},
   "confidence": "high | medium | low",
   "notes": []
 }
+
+Operation compactness rules:
+- Do not include exampleUserRequests in operations.
+- Use examples.safeCreate/safeUpdate/safeRemove/unsafeRequests for examples instead.
+- Avoid repeating generic safetyRules in every operation; use global aiSafetyRules where possible.
+- Operations may omit matchingRules and resultShape if they match defaults and do not need overrides.
+- Prefer fewer, higher-value MCP operations over many tiny operations.
+- Do not expose write operations for user-generated submissions unless clearly safe and necessary.
+- For submissions/results, prefer read/export operations by default.
 
 operation availability rules:
 - Use "allowed" only when the operation is safe to perform without additional human confirmation.
@@ -748,7 +849,7 @@ dryRunRequired rules:
 - Dry run means MCP should preview exactly what will change before applying the operation.
 
 matchingRules rules:
-- For read/list operations, matchingRules can remain empty if not needed.
+- For read/list/export operations, matchingRules can be omitted if defaults are sufficient.
 - For update/remove/reorder/bulk operations, define how MCP should identify records safely.
 - preferredMatchFields should use real schema fields only.
 - allowIndexMatch should be true only if array index is acceptable and current data is previewed first.
@@ -759,7 +860,8 @@ matchingRules rules:
 resultShape rules:
 - Keep resultShape generic and stable.
 - The MCP tool should be able to return success, message, changedFields, and preview consistently.
-- For read operations, preview may contain the returned data or summary.
+- For read/export operations, preview may contain the returned data or summary.
+- If operation resultShape matches defaults, omit it.
 
 Rules for .buildfire/plugin.mcp.json:
 
@@ -777,12 +879,12 @@ If source evidence is needed, place it in:
 Only include implementation details in plugin.mcp.json if they directly affect data safety.
 
 2. Data stores
-Identify every datastore/data structure the plugin uses.
+Identify every datastore/appData/userData structure the plugin uses.
 
-For BuildFire datastore usage, capture:
-- datastore key/name
+For BuildFire data usage, capture:
+- datastore/appData/userData key/name
 - whether data appears app-level, user-level, global, or instance-level
-- schema
+- compact schema
 - required fields
 - optional fields
 - read-only fields
@@ -860,7 +962,15 @@ If bulk update/remove is not explicitly safe:
 - require each item to match exactly one current record
 - do not allow hidden remove behavior inside bulk update
 
-8. AI safety rules
+8. User-generated data and submissions
+For submissions, results, analytics, logs, audit trails, and other user-generated records:
+- Prefer read/export only.
+- Use writeStrategy "read_only" unless safe admin write behavior is clearly implemented.
+- Do not expose create/update operations just because code can technically insert/update records.
+- Only expose write operations if they are normal admin workflows, not internal widget runtime behavior.
+- If writes are exposed, require allowed_with_confirmation and dryRunRequired true.
+
+9. AI safety rules
 Include strict rules such as:
 - Never invent schema fields.
 - Never update readOnlyFields.
@@ -877,7 +987,7 @@ Include strict rules such as:
 - For read_merge_save stores, always read the full current object before writing.
 - Detect changes between preview and final write when dryRunRequired is true.
 
-9. Human confirmation
+10. Human confirmation
 humanConfirmationRequiredFor should include:
 - remove
 - hard_remove
@@ -888,10 +998,11 @@ humanConfirmationRequiredFor should include:
 - schema_change
 - changing identity fields
 - changing read-only/system-managed fields
+- writes to user-generated data
 - any operation with low confidence
 - any operation with availability "allowed_with_confirmation"
 
-10. Unsupported operations
+11. Unsupported operations
 List any operations the plugin data model does not support safely.
 
 Example:
@@ -900,7 +1011,7 @@ Example:
   "reason": "No safe hard remove behavior was detected in the plugin code."
 }
 
-11. Examples
+12. Examples
 Include examples that MCP can use:
 - safeCreate
 - safeUpdate
@@ -909,7 +1020,13 @@ Include examples that MCP can use:
 
 Examples must match the real schema.
 
-12. Confidence
+Keep examples short:
+- Usually 1-2 safeCreate examples.
+- Usually 1-3 safeUpdate examples.
+- Usually no safeRemove examples unless remove is truly supported.
+- Usually 3-6 unsafeRequests.
+
+13. Confidence
 Set overall confidence:
 - high: schema and operations are clearly visible in code
 - medium: most schema is visible but some behavior is inferred
@@ -918,12 +1035,14 @@ Set overall confidence:
 If confidence is low:
 - .buildfire/plugin.mcp.json must warn MCP not to perform write operations without human confirmation.
 
-13. Keep plugin.mcp.json compact
+14. Keep plugin.mcp.json compact
 Do not duplicate plugin.plan.json.
 Do not include UI details unless they affect data safety.
 Do not include file-level explanations.
 Do not include sourceFiles.
 Do not include long architecture summaries.
+Do not expose every internal widget runtime write as an MCP operation.
+Do not include exhaustive schema for read-only stores.
 
 ============================================================
 VALIDATION REQUIREMENTS
@@ -941,13 +1060,15 @@ Before finishing:
 8. Ensure .buildfire/plugin.mcp.json does not include sourceFiles.
 9. Ensure .buildfire/plugin.mcp.json uses "remove" terminology instead of "delete" terminology unless the plugin truly has a safe delete model.
 10. Ensure .buildfire/plugin.mcp.json includes toolSummary.
-11. Ensure .buildfire/plugin.mcp.json includes writeStrategy and conflictHandling for every dataStore.
-12. Ensure every .buildfire/plugin.mcp.json operation includes availability, dryRunRequired, matchingRules, and resultShape.
-13. Ensure .buildfire/plugin.plan.json is deep enough for future code maintenance.
-14. Ensure .buildfire/plugin.index.json is compact enough for quick lookup.
-15. Ensure all datastore keys and schemas are based on real code evidence.
-16. If uncertain, mark confidence low/medium and add notes.
-17. Do not modify any existing plugin source files.
+11. Ensure .buildfire/plugin.mcp.json includes defaults.
+12. Ensure .buildfire/plugin.mcp.json includes writeStrategy for every dataStore.
+13. Ensure .buildfire/plugin.mcp.json includes conflictHandling for every writable dataStore or relies on defaults.
+14. Ensure .buildfire/plugin.mcp.json does not expose create/update operations for user-generated records unless clearly safe and necessary.
+15. Ensure .buildfire/plugin.plan.json is deep enough for future code maintenance.
+16. Ensure .buildfire/plugin.index.json is compact enough for quick lookup.
+17. Ensure all datastore/appData/userData keys and schemas are based on real code evidence.
+18. If uncertain, mark confidence low/medium and add notes.
+19. Do not modify any existing plugin source files.
 
 Final output:
 - Write .buildfire/plugin.plan.json
