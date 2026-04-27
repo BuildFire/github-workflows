@@ -20,7 +20,7 @@ Their purpose:
   Compact semantic file manifest so AI can quickly understand what files exist and which files may need to be read for future updates.
 
 - .buildfire/plugin.mcp.json:
-  Compact MCP-safe data operation contract so AI tools can safely read, create, update, delete, and manage plugin data without needing the full architecture every time.
+  Compact MCP-safe data operation contract so AI tools can safely read, create, update, remove, archive, reorder, and manage plugin data without needing the full architecture every time.
 
 This is a MUST:
 - Read all relevant files deeply.
@@ -115,7 +115,9 @@ Output quality rules:
 - Avoid repeating the same explanation across sections.
 - Prefer structured, precise language over long paragraphs.
 - Keep .buildfire/plugin.index.json compact and efficient.
-- Keep .buildfire/plugin.mcp.json strict and operation-focused.
+- Keep .buildfire/plugin.mcp.json strict, compact, and operation-focused.
+- Keep source/evidence/file-level details in .buildfire/plugin.plan.json and .buildfire/plugin.index.json.
+- Do not put source file references in .buildfire/plugin.mcp.json unless absolutely required for data safety.
 
 ============================================================
 FILE 1: .buildfire/plugin.plan.json
@@ -525,7 +527,7 @@ The MCP should be able to use plugin.mcp.json to understand:
 - what fields should never be touched
 - how to create records
 - how to update records
-- how to delete/archive records
+- how to remove/archive/reorder records
 - what human confirmation is required
 - how to avoid breaking the plugin
 
@@ -533,15 +535,31 @@ plugin.mcp.json MUST be compact, strict, and operation-focused.
 
 Do NOT include full UI architecture here.
 Do NOT include CSS details.
-Do NOT include long file explanations unless they affect data safety.
+Do NOT include long file explanations.
+Do NOT include sourceFiles.
+Do NOT include implementation file references unless absolutely required for data safety.
 Do NOT make this heavy.
+
+The MCP file should answer only:
+- What data can be managed?
+- Where is it stored?
+- What fields exist?
+- Which fields are safe or dangerous?
+- What operations are allowed?
+- What operations require confirmation?
+- What operations are unsupported?
+- What matching rules prevent updating the wrong record?
+- What write strategy avoids data loss?
+- What example inputs are safe or unsafe?
+
+Source code evidence belongs in .buildfire/plugin.plan.json and .buildfire/plugin.index.json, not in .buildfire/plugin.mcp.json.
 
 STRICT SAFETY MODE:
 
 If confidence is not "high":
 - Disable write operations.
 - Require human confirmation for all updates.
-- Do not allow delete operations.
+- Do not allow destructive remove/delete operations.
 
 Never allow:
 - schema changes
@@ -562,14 +580,20 @@ Create .buildfire/plugin.mcp.json with this exact top-level structure:
     "pluginJsonPath": "plugin.json"
   },
   "mcpPurpose": "Defines safe AI/MCP operations for managing this plugin's data.",
+  "toolSummary": {
+    "primaryUseCases": [],
+    "safeDefaultBehavior": "",
+    "mustAskBefore": [],
+    "neverDo": []
+  },
   "dataStores": [],
   "operations": [],
   "permissions": {
     "canCreate": true,
     "canRead": true,
     "canUpdate": true,
-    "canDelete": false,
-    "deleteMode": "disabled | soft_delete | hard_delete | unknown"
+    "canRemove": false,
+    "removeMode": "disabled | soft_remove | hard_remove | unknown"
   },
   "globalValidationRules": [],
   "aiSafetyRules": [],
@@ -578,12 +602,24 @@ Create .buildfire/plugin.mcp.json with this exact top-level structure:
   "examples": {
     "safeCreate": [],
     "safeUpdate": [],
-    "safeDelete": [],
+    "safeRemove": [],
     "unsafeRequests": []
   },
   "confidence": "high | medium | low",
   "notes": []
 }
+
+toolSummary MUST be optimized for ChatGPT App / MCP usage.
+
+toolSummary fields:
+- primaryUseCases:
+  Short list of user-facing actions MCP can safely help with.
+- safeDefaultBehavior:
+  One sentence explaining the safest default write behavior.
+- mustAskBefore:
+  Short list of actions that require user confirmation.
+- neverDo:
+  Short list of actions MCP must never perform automatically.
 
 dataStores entries MUST use this structure:
 
@@ -595,7 +631,13 @@ dataStores entries MUST use this structure:
   "collection": "",
   "recordType": "",
   "ownership": "app | user | global | instance | unknown",
-  "sourceFiles": [],
+  "writeStrategy": "read_merge_save | insert_record | update_record | unknown",
+  "conflictHandling": {
+    "readBeforeWrite": true,
+    "preserveUnknownFields": true,
+    "detectChangedSincePreview": true,
+    "onConflict": "ask_user"
+  },
   "schema": {
     "fieldName": {
       "type": "string | number | boolean | array | object | date | enum | unknown",
@@ -627,7 +669,7 @@ dataStores entries MUST use this structure:
   ],
   "createRules": [],
   "updateRules": [],
-  "deleteRules": [],
+  "removeRules": [],
   "relationships": [
     {
       "field": "",
@@ -640,20 +682,33 @@ dataStores entries MUST use this structure:
     "create": {},
     "update": {},
     "read": {},
-    "delete": {}
+    "remove": {}
   },
   "confidence": "high | medium | low",
   "notes": []
 }
+
+writeStrategy rules:
+- Use "read_merge_save" when the plugin stores a shared object and writes require reading the current object, merging requested changes, preserving unknown fields, and saving the full object back.
+- Use "insert_record" when the plugin creates separate records using insert-style behavior.
+- Use "update_record" when the plugin updates individual records without replacing shared parent data.
+- Use "unknown" when write behavior is unclear.
+- If writeStrategy is "read_merge_save", MCP must never save a partial object that could erase unrelated fields.
+
+conflictHandling rules:
+- readBeforeWrite should be true for all writable stores unless the code clearly supports direct isolated writes.
+- preserveUnknownFields should be true unless the schema explicitly says unknown fields should be dropped.
+- detectChangedSincePreview should be true for operations requiring confirmation, preview, identity changes, remove, reorder, or bulk update.
+- onConflict should usually be "ask_user".
 
 operations entries MUST use this structure:
 
 {
   "name": "",
   "description": "",
-  "operationType": "create | read | update | delete | archive | reorder | bulk_update | unknown",
+  "operationType": "create | read | update | remove | archive | reorder | bulk_update | bulk_remove | unknown",
+  "availability": "allowed | allowed_with_confirmation | unsupported",
   "targetStore": "",
-  "sourceFiles": [],
   "requiredInput": {},
   "optionalInput": {},
   "validation": [],
@@ -661,17 +716,67 @@ operations entries MUST use this structure:
   "fieldsAllowedToChange": [],
   "fieldsNotAllowedToChange": [],
   "requiresHumanConfirmation": false,
+  "dryRunRequired": false,
+  "matchingRules": {
+    "preferredMatchFields": [],
+    "allowIndexMatch": false,
+    "requiresUniqueMatch": true,
+    "ifMultipleMatches": "ask_user",
+    "ifNoMatch": "ask_user"
+  },
   "successResult": "",
   "failureCases": [],
+  "resultShape": {
+    "success": "boolean",
+    "message": "string",
+    "changedFields": "array",
+    "preview": "object"
+  },
   "exampleUserRequests": [],
   "exampleToolInput": {},
   "confidence": "high | medium | low",
   "notes": []
 }
 
+operation availability rules:
+- Use "allowed" only when the operation is safe to perform without additional human confirmation.
+- Use "allowed_with_confirmation" when the operation can be performed only after user confirmation.
+- Use "unsupported" when the operation should not be performed by MCP.
+
+dryRunRequired rules:
+- Set dryRunRequired true for remove, archive, reorder, bulk_update, bulk_remove, identity field changes, schema-risk changes, or any operation with medium/low confidence.
+- Dry run means MCP should preview exactly what will change before applying the operation.
+
+matchingRules rules:
+- For read/list operations, matchingRules can remain empty if not needed.
+- For update/remove/reorder/bulk operations, define how MCP should identify records safely.
+- preferredMatchFields should use real schema fields only.
+- allowIndexMatch should be true only if array index is acceptable and current data is previewed first.
+- requiresUniqueMatch should usually be true.
+- ifMultipleMatches should usually be "ask_user".
+- ifNoMatch should usually be "ask_user".
+
+resultShape rules:
+- Keep resultShape generic and stable.
+- The MCP tool should be able to return success, message, changedFields, and preview consistently.
+- For read operations, preview may contain the returned data or summary.
+
 Rules for .buildfire/plugin.mcp.json:
 
-1. Data stores
+1. No source file references
+Do not include sourceFiles in .buildfire/plugin.mcp.json.
+
+The MCP file is not an architecture file.
+The MCP file is not a file evidence file.
+The MCP file is a compact data-operation contract.
+
+If source evidence is needed, place it in:
+- .buildfire/plugin.plan.json fileMap, dataContracts, executionFlows, or integrationPoints
+- .buildfire/plugin.index.json files
+
+Only include implementation details in plugin.mcp.json if they directly affect data safety.
+
+2. Data stores
 Identify every datastore/data structure the plugin uses.
 
 For BuildFire datastore usage, capture:
@@ -685,89 +790,126 @@ For BuildFire datastore usage, capture:
 - dangerous fields
 - display fields
 - identity fields
+- write strategy
+- conflict handling
 
-2. Safe create
+3. Safe create
 For each data type that can be created:
 - define required input
 - define default values
 - define validation
 - define example create payload
-- define when human confirmation is needed
+- define availability
+- define whether human confirmation is needed
+- define whether dry run is needed
 
-3. Safe update
+4. Safe update
 For each data type that can be updated:
 - define how to identify the record
+- define matching rules
 - define which fields can be changed
 - define which fields must not be changed
 - define validation
 - define example update payload
 - preserve backward compatibility
+- preserve unknown fields
+- define conflict handling
 
-4. Safe delete
+5. Safe remove/archive
 Be conservative.
 
-If the plugin does not clearly support delete:
-- set canDelete false
-- set deleteMode "disabled"
-- add delete to humanConfirmationRequiredFor
-- add delete to unsupportedOperations or mark as requiresHumanConfirmation
+Use "remove" instead of "delete" unless the plugin clearly supports a safe delete model.
 
-If delete is supported:
-- prefer soft_delete if the schema supports it
-- explain exactly what field marks deletion
-- define hard delete as high risk unless clearly safe
+If the plugin does not clearly support safe remove/archive:
+- set canRemove false
+- set removeMode "disabled"
+- add remove/hard_remove to humanConfirmationRequiredFor
+- add hard_remove to unsupportedOperations or mark as requiresHumanConfirmation
 
-5. Bulk operations
+If remove is supported only by removing an item from an array:
+- treat it as destructive
+- require human confirmation
+- require dryRunRequired true
+- require a preview of the exact item to be removed
+- require matchingRules that prevent removing the wrong record
+- do not call it safe delete
+- do not set canRemove true unless it is acceptable for MCP to perform it after confirmation
+
+If archive/soft remove is supported:
+- prefer archive or soft_remove
+- explain exactly what field marks archival/removal
+- define hard_remove as high risk unless clearly safe
+
+6. Reorder operations
+If reorder is supported or can be safely inferred:
+- require human confirmation unless the plugin clearly exposes reorder behavior
+- require dryRunRequired true
+- require the new order to contain exactly the same records as the current order
+- do not allow reorder to add, remove, or mutate records
+- preserve record objects exactly
+- define matching rules clearly
+
+7. Bulk operations
 Bulk operations are dangerous.
 
-If bulk update/delete is not explicitly safe:
+If bulk update/remove is not explicitly safe:
 - require human confirmation
+- require dryRunRequired true
 - include safety rule limiting scope
 - recommend dry-run preview before execution
+- require each item to match exactly one current record
+- do not allow hidden remove behavior inside bulk update
 
-6. AI safety rules
+8. AI safety rules
 Include strict rules such as:
 - Never invent schema fields.
 - Never update readOnlyFields.
 - Never update identityFields unless explicitly confirmed.
-- Never delete records unless deleteMode allows it.
+- Never remove records unless removeMode allows it.
 - Validate required fields before create.
 - Preserve fields not included in update request.
 - Prefer partial updates only for safeToUpdateFields.
-- Ask for confirmation before destructive or bulk operations.
+- Ask for confirmation before destructive, remove, identity-changing, reorder, or bulk operations.
 - If schema confidence is low, do not perform write operations without human confirmation.
 - Do not change plugin configuration unless the operation is explicitly about configuration.
+- Never overwrite a full shared datastore object with a partial object.
+- Preserve unknown fields unless explicitly instructed otherwise.
+- For read_merge_save stores, always read the full current object before writing.
+- Detect changes between preview and final write when dryRunRequired is true.
 
-7. Human confirmation
+9. Human confirmation
 humanConfirmationRequiredFor should include:
-- delete
-- hard_delete
+- remove
+- hard_remove
+- archive if destructive
+- reorder unless explicitly safe
 - bulk_update
-- bulk_delete
+- bulk_remove
 - schema_change
 - changing identity fields
 - changing read-only/system-managed fields
 - any operation with low confidence
+- any operation with availability "allowed_with_confirmation"
 
-8. Unsupported operations
+10. Unsupported operations
 List any operations the plugin data model does not support safely.
 
 Example:
 {
-  "operation": "hard_delete",
-  "reason": "No safe hard delete behavior was detected in the plugin code."
+  "operation": "hard_remove",
+  "reason": "No safe hard remove behavior was detected in the plugin code."
 }
 
-9. Examples
+11. Examples
 Include examples that MCP can use:
 - safeCreate
 - safeUpdate
-- safeDelete if supported
+- safeRemove if supported
 - unsafeRequests
 
 Examples must match the real schema.
 
-10. Confidence
+12. Confidence
 Set overall confidence:
 - high: schema and operations are clearly visible in code
 - medium: most schema is visible but some behavior is inferred
@@ -775,6 +917,13 @@ Set overall confidence:
 
 If confidence is low:
 - .buildfire/plugin.mcp.json must warn MCP not to perform write operations without human confirmation.
+
+13. Keep plugin.mcp.json compact
+Do not duplicate plugin.plan.json.
+Do not include UI details unless they affect data safety.
+Do not include file-level explanations.
+Do not include sourceFiles.
+Do not include long architecture summaries.
 
 ============================================================
 VALIDATION REQUIREMENTS
@@ -789,11 +938,16 @@ Before finishing:
 5. Ensure .buildfire/plugin.index.json references .buildfire/plugin.mcp.json.
 6. Ensure .buildfire/plugin.plan.json references .buildfire/plugin.mcp.json in mcpSummary.
 7. Ensure .buildfire/plugin.mcp.json only includes data-operation context, not full architecture.
-8. Ensure .buildfire/plugin.plan.json is deep enough for future code maintenance.
-9. Ensure .buildfire/plugin.index.json is compact enough for quick lookup.
-10. Ensure all datastore keys and schemas are based on real code evidence.
-11. If uncertain, mark confidence low/medium and add notes.
-12. Do not modify any existing plugin source files.
+8. Ensure .buildfire/plugin.mcp.json does not include sourceFiles.
+9. Ensure .buildfire/plugin.mcp.json uses "remove" terminology instead of "delete" terminology unless the plugin truly has a safe delete model.
+10. Ensure .buildfire/plugin.mcp.json includes toolSummary.
+11. Ensure .buildfire/plugin.mcp.json includes writeStrategy and conflictHandling for every dataStore.
+12. Ensure every .buildfire/plugin.mcp.json operation includes availability, dryRunRequired, matchingRules, and resultShape.
+13. Ensure .buildfire/plugin.plan.json is deep enough for future code maintenance.
+14. Ensure .buildfire/plugin.index.json is compact enough for quick lookup.
+15. Ensure all datastore keys and schemas are based on real code evidence.
+16. If uncertain, mark confidence low/medium and add notes.
+17. Do not modify any existing plugin source files.
 
 Final output:
 - Write .buildfire/plugin.plan.json
