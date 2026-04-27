@@ -1,4 +1,4 @@
-name: Generate AI Plugin Metadata (Reusable)
+name: Generate BuildFire Plugin Metadata (Reusable)
 
 on:
   workflow_call:
@@ -42,14 +42,14 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           path: plugin-repo
-          commit-message: "chore: update AI plugin metadata"
-          title: "chore: update AI plugin metadata"
+          commit-message: "chore: update BuildFire plugin metadata"
+          title: "chore: update BuildFire plugin metadata"
           body: |
-            Auto-generated AI metadata files.
+            Auto-generated BuildFire plugin metadata files.
 
             Updated:
-            - ai/plugin.plan.json
-            - ai/plugin.index.json
-            - ai/plugin.mcp.json
-          branch: chore/update-ai-plugin-metadata
+            - .buildfire/plugin.plan.json
+            - .buildfire/plugin.index.json
+            - .buildfire/plugin.mcp.json
+          branch: chore/update-buildfire-plugin-metadata
           delete-branch: true
