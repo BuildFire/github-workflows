@@ -1,25 +1,25 @@
 You are running inside the root folder of an existing BuildFire plugin.
 
-Your task is to deeply scan the entire plugin codebase and generate exactly these three files under the plugin root "ai/" folder:
+Your task is to deeply scan the entire plugin codebase and generate exactly these three files under the plugin root ".buildfire/" folder:
 
-1. ai/plugin.plan.json
-2. ai/plugin.index.json
-3. ai/plugin.mcp.json
+1. .buildfire/plugin.plan.json
+2. .buildfire/plugin.index.json
+3. .buildfire/plugin.mcp.json
 
-These files are generated AI metadata files.
+These files are generated BuildFire metadata files.
 Do not treat them as runtime plugin files.
 
-These files are AI memory files.
+These files are Plugin Studio memory files used by BuildFire AI, MCP workflows, future code generation, future code updates, and safe plugin data operations.
 
 Their purpose:
 
-- ai/plugin.plan.json:
+- .buildfire/plugin.plan.json:
   Deep architectural memory for Plugin Studio, future code generation, future code updates, and safe maintenance.
 
-- ai/plugin.index.json:
+- .buildfire/plugin.index.json:
   Compact semantic file manifest so AI can quickly understand what files exist and which files may need to be read for future updates.
 
-- ai/plugin.mcp.json:
+- .buildfire/plugin.mcp.json:
   Compact MCP-safe data operation contract so AI tools can safely read, create, update, delete, and manage plugin data without needing the full architecture every time.
 
 This is a MUST:
@@ -47,9 +47,9 @@ This is a MUST:
 - Do NOT generate shallow summaries.
 - Do NOT modify existing source code.
 - Only create or replace:
-  - ai/plugin.plan.json
-  - ai/plugin.index.json
-  - ai/plugin.mcp.json
+  - .buildfire/plugin.plan.json
+  - .buildfire/plugin.index.json
+  - .buildfire/plugin.mcp.json
 
 Scan these files if they exist:
 - plugin.json
@@ -73,6 +73,7 @@ Scan strategy:
 - Build a mental architecture map before generating output.
 
 Ignore:
+- .buildfire/**
 - ai/**
 - node_modules
 - dist
@@ -105,19 +106,19 @@ Priority order:
 1. Understand data layer: datastore, settings, content.
 2. Understand execution flows.
 3. Map files and dependencies.
-4. Generate ai/plugin.plan.json.
-5. Generate ai/plugin.index.json.
-6. Generate ai/plugin.mcp.json.
+4. Generate .buildfire/plugin.plan.json.
+5. Generate .buildfire/plugin.index.json.
+6. Generate .buildfire/plugin.mcp.json.
 
 Output quality rules:
 - Be detailed but not redundant.
 - Avoid repeating the same explanation across sections.
 - Prefer structured, precise language over long paragraphs.
-- Keep ai/plugin.index.json compact and efficient.
-- Keep ai/plugin.mcp.json strict and operation-focused.
+- Keep .buildfire/plugin.index.json compact and efficient.
+- Keep .buildfire/plugin.mcp.json strict and operation-focused.
 
 ============================================================
-FILE 1: ai/plugin.plan.json
+FILE 1: .buildfire/plugin.plan.json
 ============================================================
 
 plugin.plan.json is the deep architectural brain of the plugin.
@@ -134,7 +135,7 @@ It must allow another AI session to understand:
 
 plugin.plan.json MUST be implementation-aware and update-safe.
 
-Create ai/plugin.plan.json with this exact top-level structure:
+Create .buildfire/plugin.plan.json with this exact top-level structure:
 
 {
   "schemaVersion": "1.0.0",
@@ -173,7 +174,7 @@ Create ai/plugin.plan.json with this exact top-level structure:
   "extensionPoints": [],
   "mcpSummary": {
     "hasMcpContract": true,
-    "mcpContractFile": "ai/plugin.mcp.json",
+    "mcpContractFile": ".buildfire/plugin.mcp.json",
     "dataOperationsSupported": [],
     "primaryDataStores": []
   },
@@ -186,7 +187,7 @@ Create ai/plugin.plan.json with this exact top-level structure:
   }
 }
 
-Rules for ai/plugin.plan.json:
+Rules for .buildfire/plugin.plan.json:
 
 1. pluginPurpose
 Explain clearly what the plugin does from both:
@@ -425,7 +426,7 @@ Where new features can be safely added:
 Summarize what MCP should care about:
 - primary data stores
 - supported data operations
-- whether ai/plugin.mcp.json exists
+- whether .buildfire/plugin.mcp.json exists
 - whether MCP can safely manage this plugin data
 
 14. aiContext
@@ -439,7 +440,7 @@ Include:
 - antiPatterns: things future AI must never do
 
 ============================================================
-FILE 2: ai/plugin.index.json
+FILE 2: .buildfire/plugin.index.json
 ============================================================
 
 plugin.index.json is a compact semantic manifest.
@@ -452,7 +453,7 @@ Its purpose:
 - provide quick lookup for file purpose and risk
 - avoid sending full plugin.plan.json every time
 
-Create ai/plugin.index.json with this exact top-level structure:
+Create .buildfire/plugin.index.json with this exact top-level structure:
 
 {
   "schemaVersion": "1.0.0",
@@ -466,7 +467,7 @@ Create ai/plugin.index.json with this exact top-level structure:
     "hasControl": true,
     "enabledControlSections": [],
     "hasMcpContract": true,
-    "mcpContractPath": "ai/plugin.mcp.json"
+    "mcpContractPath": ".buildfire/plugin.mcp.json"
   },
   "counts": {
     "total": 0,
@@ -508,7 +509,7 @@ Rules:
 - Mark files involved in datastore/data operations as mcpRelevant: true.
 
 ============================================================
-FILE 3: ai/plugin.mcp.json
+FILE 3: .buildfire/plugin.mcp.json
 ============================================================
 
 plugin.mcp.json is the most important file for MCP.
@@ -548,7 +549,7 @@ Never allow:
 - identity field modification
 without explicit confirmation.
 
-Create ai/plugin.mcp.json with this exact top-level structure:
+Create .buildfire/plugin.mcp.json with this exact top-level structure:
 
 {
   "schemaVersion": "1.0.0",
@@ -668,7 +669,7 @@ operations entries MUST use this structure:
   "notes": []
 }
 
-Rules for ai/plugin.mcp.json:
+Rules for .buildfire/plugin.mcp.json:
 
 1. Data stores
 Identify every datastore/data structure the plugin uses.
@@ -773,7 +774,7 @@ Set overall confidence:
 - low: data model is unclear
 
 If confidence is low:
-- ai/plugin.mcp.json must warn MCP not to perform write operations without human confirmation.
+- .buildfire/plugin.mcp.json must warn MCP not to perform write operations without human confirmation.
 
 ============================================================
 VALIDATION REQUIREMENTS
@@ -785,19 +786,19 @@ Before finishing:
 2. Ensure there are no comments in JSON.
 3. Ensure no trailing commas.
 4. Ensure all paths are relative paths.
-5. Ensure ai/plugin.index.json references ai/plugin.mcp.json.
-6. Ensure ai/plugin.plan.json references ai/plugin.mcp.json in mcpSummary.
-7. Ensure ai/plugin.mcp.json only includes data-operation context, not full architecture.
-8. Ensure ai/plugin.plan.json is deep enough for future code maintenance.
-9. Ensure ai/plugin.index.json is compact enough for quick lookup.
+5. Ensure .buildfire/plugin.index.json references .buildfire/plugin.mcp.json.
+6. Ensure .buildfire/plugin.plan.json references .buildfire/plugin.mcp.json in mcpSummary.
+7. Ensure .buildfire/plugin.mcp.json only includes data-operation context, not full architecture.
+8. Ensure .buildfire/plugin.plan.json is deep enough for future code maintenance.
+9. Ensure .buildfire/plugin.index.json is compact enough for quick lookup.
 10. Ensure all datastore keys and schemas are based on real code evidence.
 11. If uncertain, mark confidence low/medium and add notes.
 12. Do not modify any existing plugin source files.
 
 Final output:
-- Write ai/plugin.plan.json
-- Write ai/plugin.index.json
-- Write ai/plugin.mcp.json
+- Write .buildfire/plugin.plan.json
+- Write .buildfire/plugin.index.json
+- Write .buildfire/plugin.mcp.json
 
 Do NOT:
 - Create any other files.
