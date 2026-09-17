@@ -360,7 +360,19 @@ const server = http.createServer((req, res) => {
                     console.log('mock-service: source root "' + inspection.root + '"');
                     console.log('mock-service: present -> ' + (inspection.existing.length ? inspection.existing.join(', ') : '(none)'));
                     console.log('mock-service: absent  -> ' + (inspection.missing.length ? inspection.missing.join(', ') : '(none)'));
-                    console.log('mock-service: a real service would open a PR here; this mock stops short of that.');
+
+                    const pr = inspection.pullRequest;
+                    if (!pr) {
+                        console.log('mock-service: OPEN_PR is off - a real service would open a PR here.');
+                    } else if (pr.url) {
+                        console.log('mock-service: opened PR ' + pr.url + ' (branch ' + pr.branch + ')');
+                    } else if (pr.updatedExisting) {
+                        console.log('mock-service: branch ' + pr.branch + ' already has an open PR; pushed the update to it.');
+                    } else if (pr.skipped) {
+                        console.log('mock-service: no PR needed - ' + pr.skipped);
+                    } else if (pr.error) {
+                        console.error('mock-service: could not open a PR: ' + pr.error);
+                    }
                 }
 
                 res.writeHead(202, { 'Content-Type': 'application/json' });
