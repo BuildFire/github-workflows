@@ -57,11 +57,4 @@ export GITHUB_TOKEN
 
 export OPEN_PR="${OPEN_PR:-true}"
 
-if [ -z "${CONTRACT_SERVICE_TOKEN:-}" ] && [ "$OPEN_PR" = "true" ]; then
-    echo
-    echo "note: CONTRACT_SERVICE_TOKEN is unset, so any caller that reaches this can open PRs."
-    echo "      fine on localhost; set it (and the matching repo secret) before tunnelling."
-    echo
-fi
-
 exec node "$SCRIPT_DIR/server.js"

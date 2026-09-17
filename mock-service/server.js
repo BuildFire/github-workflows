@@ -36,8 +36,8 @@ const { execFile } = require('child_process');
 const PORT = process.env.PORT || 4300;
 
 // Shared secret the workflow sends as `Authorization: Bearer <token>`. Unset means anyone who can reach
-// this can trigger it, which is fine on localhost inside a CI runner and NOT fine behind a public tunnel
-// — see the startup warning below.
+// this can trigger it, which is fine on localhost inside a CI runner and NOT fine behind a public tunnel.
+// The `caller auth:` line printed at startup reports which mode is active.
 const EXPECTED_TOKEN = process.env.CONTRACT_SERVICE_TOKEN || '';
 
 // what a trigger has to carry for the service to be able to act on it at all
@@ -441,9 +441,7 @@ server.listen(PORT, () => {
     console.log('  open PRs   : ' + (String(process.env.OPEN_PR).toLowerCase() === 'true' ? 'yes (OPEN_PR=true)' : 'no'));
     console.log('  caller auth: ' + (EXPECTED_TOKEN ? 'bearer token required' : 'NONE - anyone who can reach this can trigger it'));
 
-    if (!EXPECTED_TOKEN && String(process.env.OPEN_PR).toLowerCase() === 'true') {
-        console.warn('  WARNING: this will open pull requests for anyone who can reach it, and no token');
-        console.warn('           is set. Fine on localhost; if you are exposing this through a tunnel,');
-        console.warn('           set CONTRACT_SERVICE_TOKEN here and as the repo/org secret of the same name.');
-    }
+    // No warning block here on purpose: "no caller auth" is a deliberate choice for localhost, and
+    // repeating a three-line warning on every restart trains people to ignore the output. The
+    // `caller auth:` line above already says it, and the README covers when it matters.
 });
