@@ -24,6 +24,25 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Local overrides, if present. Gitignored — this repo is public, so a token must never be tracked.
+# Anything already exported wins, so a one-off `GITHUB_TOKEN=... ./run-local.sh` still overrides the file.
+if [ -f "$SCRIPT_DIR/local.env" ]; then
+    echo "loading $SCRIPT_DIR/local.env"
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ''|'#'*) continue ;;
+        esac
+        key="${line%%=*}"
+        value="${line#*=}"
+        [ -z "$key" ] && continue
+        [ -z "$value" ] && continue
+        # only set what the caller has not already exported
+        if [ -z "$(eval "printf '%s' \"\${$key:-}\"")" ]; then
+            export "$key=$value"
+        fi
+    done < "$SCRIPT_DIR/local.env"
+fi
+
 if [ -z "${GITHUB_TOKEN:-}" ]; then
     # `git credential fill` prints `password=<token>` for the host; never echo the value itself
     GITHUB_TOKEN=$(printf "protocol=https\nhost=github.com\n\n" | git credential fill 2>/dev/null | sed -n 's/^password=//p')

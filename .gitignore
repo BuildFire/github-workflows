@@ -1,0 +1,4 @@
+# Local, uncommitted config for mock-service/run-local.sh - holds real tokens.
+# This repo is public; nothing here may ever be tracked.
+mock-service/local.env
+mock-service.log
