@@ -279,12 +279,17 @@ function handleTrigger(trigger, callback) {
 
         // What the clone actually produced. Without this the clone is invisible on success - you only
         // ever see it when it fails - so there is no way to tell a correct checkout from a lucky one.
+        let fileCount = 0;
         try {
             const entries = fs.readdirSync(repoDir, { withFileTypes: true })
                 .filter((entry) => entry.name !== '.git')
                 .map((entry) => entry.isDirectory() ? entry.name + '/' : entry.name)
                 .sort();
-            console.log('mock-service: cloned ' + entries.length + ' top-level entries: ' + entries.join(', '));
+            const countFiles = (dir) => fs.readdirSync(dir, { withFileTypes: true })
+                .filter((entry) => entry.name !== '.git')
+                .reduce((total, entry) => total + (entry.isDirectory() ? countFiles(path.join(dir, entry.name)) : 1), 0);
+            fileCount = countFiles(repoDir);
+            console.log('mock-service: cloned ' + fileCount + ' files, top level: ' + entries.join(', '));
         } catch (e) {
             console.error('mock-service: could not list the checkout: ' + e.message);
         }
@@ -296,24 +301,46 @@ function handleTrigger(trigger, callback) {
             cleanup();
             return callback(null, { error: 'could not inspect the checkout: ' + e.message });
         }
+        inspection.fileCount = fileCount;
 
-        // OPEN_PR is off unless the workflow asks for it, so the default stays read-only.
-        if (String(process.env.OPEN_PR).toLowerCase() !== 'true') {
-            cleanup();
-            return callback(null, inspection);
-        }
+        // Prove the checkout is the commit that was asked for. A listing alone cannot distinguish the
+        // right commit from a stale or wrong one, and every check after this is only meaningful if the
+        // tree on disk is the tree the trigger named.
+        execFile('git', ['-C', repoDir, 'rev-parse', 'HEAD'], (headErr, stdout) => {
+            const head = String(stdout || '').trim();
+            inspection.checkedOutSha = head || null;
+            inspection.shaMatchesTrigger = head === trigger.sha;
 
-        openPullRequest({
-            repoDir: repoDir,
-            repository: trigger.repository,
-            ref: trigger.ref,
-            token: process.env.GITHUB_TOKEN,
-            missing: inspection.missing
-        }, (prErr, pullRequest) => {
-            cleanup();
-            inspection.pullRequest = pullRequest;
-            callback(null, inspection);
+            if (!head) {
+                console.error('mock-service: could not read HEAD of the checkout');
+            } else if (inspection.shaMatchesTrigger) {
+                console.log('mock-service: checked out ' + head + ' - matches the triggering commit');
+            } else {
+                console.error('mock-service: MISMATCH - checked out ' + head + ' but the trigger named ' + trigger.sha);
+            }
+
+            afterInspection();
         });
+
+        function afterInspection() {
+            // OPEN_PR is off unless the workflow asks for it, so the default stays read-only.
+            if (String(process.env.OPEN_PR).toLowerCase() !== 'true') {
+                cleanup();
+                return callback(null, inspection);
+            }
+
+            openPullRequest({
+                repoDir: repoDir,
+                repository: trigger.repository,
+                ref: trigger.ref,
+                token: process.env.GITHUB_TOKEN,
+                missing: inspection.missing
+            }, (prErr, pullRequest) => {
+                cleanup();
+                inspection.pullRequest = pullRequest;
+                callback(null, inspection);
+            });
+        }
     });
 }
 
