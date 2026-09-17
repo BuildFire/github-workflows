@@ -35,6 +35,11 @@ const { execFile } = require('child_process');
 
 const PORT = process.env.PORT || 4300;
 
+// Shared secret the workflow sends as `Authorization: Bearer <token>`. Unset means anyone who can reach
+// this can trigger it, which is fine on localhost inside a CI runner and NOT fine behind a public tunnel
+// — see the startup warning below.
+const EXPECTED_TOKEN = process.env.CONTRACT_SERVICE_TOKEN || '';
+
 // what a trigger has to carry for the service to be able to act on it at all
 const REQUIRED_FIELDS = ['repository', 'ref', 'sha', 'event'];
 
@@ -352,6 +357,18 @@ const server = http.createServer((req, res) => {
     }
 
     if (req.method === 'POST' && req.url === '/check-contract') {
+        // Only enforced when a token is configured, so the in-runner localhost path keeps working
+        // without one. Behind a tunnel, set CONTRACT_SERVICE_TOKEN and the matching repo secret.
+        if (EXPECTED_TOKEN) {
+            const provided = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+            if (provided !== EXPECTED_TOKEN) {
+                console.error('mock-service: rejected a request with a missing or wrong bearer token');
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'unauthorized' }));
+                return;
+            }
+        }
+
         const chunks = [];
         req.on('data', (chunk) => chunks.push(chunk));
         req.on('end', () => {
@@ -420,4 +437,13 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
     console.log('mock contract-check service listening on http://localhost:' + PORT);
+    console.log('  clone auth : ' + (process.env.GITHUB_TOKEN ? 'GITHUB_TOKEN set' : 'none (falls back to your git credentials)'));
+    console.log('  open PRs   : ' + (String(process.env.OPEN_PR).toLowerCase() === 'true' ? 'yes (OPEN_PR=true)' : 'no'));
+    console.log('  caller auth: ' + (EXPECTED_TOKEN ? 'bearer token required' : 'NONE - anyone who can reach this can trigger it'));
+
+    if (!EXPECTED_TOKEN && String(process.env.OPEN_PR).toLowerCase() === 'true') {
+        console.warn('  WARNING: this will open pull requests for anyone who can reach it, and no token');
+        console.warn('           is set. Fine on localhost; if you are exposing this through a tunnel,');
+        console.warn('           set CONTRACT_SERVICE_TOKEN here and as the repo/org secret of the same name.');
+    }
 });

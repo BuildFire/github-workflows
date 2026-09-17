@@ -138,17 +138,32 @@ generating the file contents and opening the PR are the parts it cannot stand in
 `mock-service/server.js` has no dependencies (Node built-ins only), so the workflow starts it with a
 bare `node` call — no `npm install` step.
 
-It goes as far as a mock usefully can:
+It walks the whole path:
 
 ```txt
-trigger -> clone the repo at the sha -> report which contract files are missing -> [open a PR]
-                                                                                    ^ not this
+trigger -> clone at the sha -> report which contract files are missing -> open a PR (OPEN_PR=true)
 ```
 
 `cloneAtSha()` and `inspectContractFiles()` are written to be lifted straight into the real service —
-shallow single-commit fetch, root detection (`.` then `src/`), and the five contract paths. What the
-mock will not do is open the pull request: that needs write credentials it has no business holding.
-It reports what it *would* open instead.
+shallow single-commit fetch, verification that `HEAD` is the commit the trigger named, root detection
+(`.` then `src/`), and the five contract paths.
+
+The PR step is **demo scaffolding**, off unless `OPEN_PR=true`. Two things keep it a stand-in rather
+than the real thing:
+
+- it borrows the CI runner's token instead of carrying the service's own credentials
+- **it does not generate anything from the plugin's code.** `stubFor()` branches on the *filename*
+  alone and returns the same placeholder every time, stamped `MOCK — ... not a real contract`. That
+  function is the seam where real generation slots in; its signature gives it away, since a path is not
+  enough to describe what a plugin exposes.
+
+What is genuinely exercised: the clone, layout detection, working out which files are absent, widget vs
+control, branching, committing, pushing, and opening or updating the PR. Re-running force-pushes the
+same branch rather than stacking duplicates — the idempotency rule the real service needs too.
+
+A clone failure is reported in the response rather than returned as a non-2xx. Delivering the trigger
+is the workflow's job and it succeeded; a clone failure is the service's problem (usually credentials)
+and should not read as "the workflow is broken".
 
 A clone failure is reported in the response rather than returned as a non-2xx. Delivering the trigger
 is the workflow's job and it succeeded; a clone failure is the service's problem (usually credentials)
@@ -178,6 +193,45 @@ curl -X POST http://localhost:4300/check-contract \
 
 Verified against both layouts: `chatPlugin` resolves `root: "."`, `freeTextQuestionnairePlugin`
 resolves `root: "src"`.
+
+---
+
+## Developing against a local service (ngrok)
+
+The bundled mock runs *inside* the runner, so GitHub never reaches your machine. To iterate on the real
+service locally instead, expose your machine and point `service_url` at it — the workflow then skips the
+bundled mock entirely and never checks this repo out.
+
+```sh
+# 1. run the service locally, with a token so it can clone and open PRs
+export GITHUB_TOKEN=ghp_...              # PAT with repo access
+export CONTRACT_SERVICE_TOKEN=$(openssl rand -hex 16)
+export OPEN_PR=true                      # omit to report findings without opening PRs
+node mock-service/server.js
+
+# 2. expose it
+ngrok http 4300                          # -> https://<something>.ngrok-free.app
+```
+
+Then in the plugin repo: add `CONTRACT_SERVICE_TOKEN` as a repo secret with the same value, and set the
+caller's input:
+
+```yaml
+    with:
+      service_url: 'https://<something>.ngrok-free.app'
+```
+
+Push, and the trigger lands on your laptop with a real commit from a real repo — the fastest loop for
+building the generation logic, since you can edit `stubFor()` and re-push without touching CI.
+
+**Set `CONTRACT_SERVICE_TOKEN`.** A tunnelled endpoint that opens pull requests is callable by anyone who
+learns the URL. The server enforces the bearer token whenever the variable is set, ignores it when unset
+(so the in-runner localhost path still works), and warns loudly at startup if it is exposed with
+`OPEN_PR=true` and no token.
+
+Two things differ from the in-runner path: the health check and log-dump steps are skipped, since they
+only apply to the bundled mock; and `GITHUB_TOKEN` is whatever PAT you export rather than the runner's
+scoped token, so the clone falls back to your local git credentials if you leave it unset.
 
 ---
 
