@@ -24,8 +24,9 @@ on:
         type: string
         default: ''
     secrets:
-      # Name kept from the old Codex-based flow (see the filename note above). Only needed to check out
-      # this repo for the bundled mock; the real-service path does not use it.
+      # Not needed while github-workflows is public - the runner's own token can read it. Kept as an
+      # optional override for the day it goes private. Name is from the old Codex-based flow (see the
+      # filename note above), so `secrets: inherit` in existing callers keeps working.
       PLUGIN_AI_METADATA_GH_TOKEN:
         required: false
       # Shared secret the service can use to verify the caller. Optional so the mock path works without
@@ -52,7 +53,10 @@ jobs:
         with:
           repository: BuildFire/github-workflows
           path: shared-automation
-          token: ${{ secrets.PLUGIN_AI_METADATA_GH_TOKEN }}
+          # This repo is public, so the runner's own token can read it and no secret is needed. The
+          # fallback is kept for the day it goes private: set PLUGIN_AI_METADATA_GH_TOKEN then.
+          # Passing an empty `token:` is not the same as omitting it - checkout rejects it outright.
+          token: ${{ secrets.PLUGIN_AI_METADATA_GH_TOKEN || github.token }}
 
       # Backgrounded so it outlives this step — steps in a job share the same runner process tree, so it
       # stays up for the notify step below. Zero dependencies, so no npm install is needed to start it.
