@@ -1,3 +1,10 @@
+NOTE (kept for reference, not currently run): the reusable workflow no longer calls Codex with this
+prompt directly — it now calls an external contract-check service instead (see the repo README). This
+file may be a useful starting point for that service's own logic, particularly its rules against
+inventing datastore keys/behavior, but nothing in .github/workflows/ reads it today.
+
+---
+
 You are running inside the root folder of an existing BuildFire plugin.
 
 Your task is to deeply scan the entire plugin codebase and generate exactly these three files under the plugin root ".buildfire/" folder:

@@ -1,55 +1,124 @@
-name: Generate BuildFire Plugin Metadata (Reusable)
+name: Check BuildFire Plugin Contract (Reusable)
+
+# Filename kept as generate-buildfire-plugin-metadata.yml even though its job changed: every plugin
+# repo's caller references this path in its own workflow's `uses:` line, and renaming it would break
+# all of them silently until each one is updated by hand. Rename only alongside updating every caller.
+#
+# This workflow does not inspect the plugin or open a pull request. It tells the contract service that
+# a push landed, and the service does the rest — reading the repo, deciding what the contract files
+# should be, and opening the PR itself. That is why there is no checkout of the plugin repo here.
+#
+# The write permissions below are an exception, and a temporary one: until the real service exists, the
+# bundled mock stands in for it from inside the runner and needs the runner's token to open a demo PR.
+# See the note on `permissions` for what to strip once a real service is wired up.
 
 on:
   workflow_call:
+    inputs:
+      service_url:
+        description: >
+          Contract-check service to notify, e.g. https://contract-check.buildfire.com. Leave empty to
+          use the mock bundled in mock-service/server.js instead — the real service does not exist yet,
+          so this is the default until one does.
+        required: false
+        type: string
+        default: ''
     secrets:
-      PLUGIN_AI_METADATA_OPENAI_API_KEY:
-        required: true
+      # Name kept from the old Codex-based flow (see the filename note above). Only needed to check out
+      # this repo for the bundled mock; the real-service path does not use it.
       PLUGIN_AI_METADATA_GH_TOKEN:
-        required: true
+        required: false
+      # Shared secret the service can use to verify the caller. Optional so the mock path works without
+      # one, but a real endpoint that opens pull requests on demand should not be callable by anyone.
+      CONTRACT_SERVICE_TOKEN:
+        required: false
 
+# TEMPORARY, for the bundled mock only. The real service opens PRs under its own credentials, and this
+# should drop back to `contents: read` the moment `service_url` points at one — the whole point of the
+# notify-only design is that this workflow needs no write access to the plugin repo.
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  generate:
+  notify-contract-service:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout plugin repo
-        uses: actions/checkout@v5
-        with:
-          path: plugin-repo
-
+      # Only for the bundled mock. The real-service path checks out nothing at all.
       - name: Checkout shared automation repo
+        if: inputs.service_url == ''
         uses: actions/checkout@v5
         with:
           repository: BuildFire/github-workflows
           path: shared-automation
           token: ${{ secrets.PLUGIN_AI_METADATA_GH_TOKEN }}
 
-      - name: Run Codex metadata generation
-        uses: openai/codex-action@v1
-        with:
-          openai-api-key: ${{ secrets.PLUGIN_AI_METADATA_OPENAI_API_KEY }}
-          working-directory: plugin-repo
-          prompt-file: shared-automation/prompts/buildfire-plugin-metadata.prompt.md
-          model: gpt-5.4-mini
-          effort: medium
+      # Backgrounded so it outlives this step — steps in a job share the same runner process tree, so it
+      # stays up for the notify step below. Zero dependencies, so no npm install is needed to start it.
+      - name: Start bundled mock service
+        if: inputs.service_url == ''
+        env:
+          # Lets the mock clone the plugin repo, and open the demo PR. Scoped to this repo only; the real
+          # service will carry its own credentials instead.
+          GITHUB_TOKEN: ${{ github.token }}
+          # Demo scaffolding: has the mock actually open the PR rather than only reporting what it would
+          # open. Drop this (and the write permissions above) once a real service exists.
+          OPEN_PR: 'true'
+        run: |
+          node shared-automation/mock-service/server.js > mock-service.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:4300/health > /dev/null && exit 0
+            sleep 0.5
+          done
+          echo "mock service did not become healthy in time"; cat mock-service.log; exit 1
 
-      - name: Create PR if metadata changed
-        uses: peter-evans/create-pull-request@v8
-        with:
-          path: plugin-repo
-          commit-message: "chore: update BuildFire plugin metadata"
-          title: "chore: update BuildFire plugin metadata"
-          body: |
-            Auto-generated BuildFire plugin metadata files.
+      - name: Resolve service URL
+        id: resolve
+        env:
+          SERVICE_URL: ${{ inputs.service_url }}
+        run: |
+          if [ -n "$SERVICE_URL" ]; then
+            echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=http://localhost:4300" >> "$GITHUB_OUTPUT"
+          fi
 
-            Updated:
-            - .buildfire/plugin.plan.json
-            - .buildfire/plugin.index.json
-            - .buildfire/plugin.mcp.json
-          branch: chore/update-buildfire-plugin-metadata
-          delete-branch: true
+      # The whole job of this workflow: tell the service which commit landed, and let it take over.
+      # Context values go through env rather than being interpolated into the script, so a branch or
+      # actor name can never be read as shell.
+      - name: Notify the contract service
+        env:
+          SERVICE_URL: ${{ steps.resolve.outputs.url }}
+          SERVICE_TOKEN: ${{ secrets.CONTRACT_SERVICE_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          payload=$(jq -n \
+            --arg repository "$REPOSITORY" \
+            --arg ref "$REF" \
+            --arg sha "$SHA" \
+            --arg event "$EVENT" \
+            '{repository: $repository, ref: $ref, sha: $sha, event: $event}')
+
+          echo "notifying $SERVICE_URL/check-contract for $REPOSITORY@$SHA"
+
+          # Built as an array rather than inline ${TOKEN:+-H "..."}: that idiom keeps the header as one
+          # argument in bash but splits it in some other shells, which is a needless thing to depend on
+          # for a header that carries a secret.
+          auth_header=()
+          if [ -n "$SERVICE_TOKEN" ]; then
+            auth_header=(-H "Authorization: Bearer $SERVICE_TOKEN")
+          fi
+
+          # --fail-with-body: a non-2xx exits non-zero *and* still prints what the service said, so a
+          # rejection is visible in the log rather than a bare exit code.
+          # 120s: the bundled mock clones and inspects the repo before answering. A real service should
+          # ack immediately and work asynchronously, so this can come back down once one exists.
+          curl --fail-with-body -sS -X POST "$SERVICE_URL/check-contract" \
+            -H 'Content-Type: application/json' \
+            "${auth_header[@]}" \
+            --max-time 120 \
+            -d "$payload"

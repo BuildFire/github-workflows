@@ -1,414 +1,230 @@
 # BuildFire GitHub Workflows
 
-This repository contains shared GitHub Actions workflows for BuildFire repositories.
-
-The goal is to keep common automation in one place so each plugin repository only needs a small workflow file.
+Shared GitHub Actions workflows for BuildFire repositories, so each plugin repo only needs a small
+caller file rather than its own copy of the automation.
 
 ---
 
 ## What this repo supports today
 
-### BuildFire Plugin Metadata Generator
+### Plugin contract check
 
-This workflow scans an existing BuildFire plugin and generates BuildFire metadata files under:
+On every push to a plugin repo's default branch (`main` or `master` — BuildFire repos use both), this
+workflow tells the contract service that a commit landed. The service then checks whether the plugin
+has the contract files it should (`widget/plugin.contract.json`, and `plugin.contract.js`/`contract.html`
+for whichever sides declare function operations — see
+[Plugin Contract](https://sdk.buildfire.com/docs/plugin-contract)), and if something is missing or out
+of date it opens a pull request itself. Nothing is pushed directly to the default branch.
+
+The split matters: **the service does the work, the workflow only triggers it.** The workflow never
+reads the plugin's files and never opens a PR, so it needs no write access to the repo — the service
+carries its own GitHub credentials.
+
+**The contract-check service does not exist yet.** Until it does, every plugin repo runs against a
+small mock bundled in this repo (`mock-service/`). It clones the repo and reports which contract files
+are missing — everything the real service does except opening the PR — so the flow is verifiable now,
+and its clone/inspect functions are written to be lifted into the real service later.
+
+---
+
+## How it works
+
+The workflow does not inspect the plugin and does not open the pull request. It notifies the contract
+service that a commit landed; the service reads the repo through the GitHub API, decides what the
+contract files should be, and opens the PR under its own credentials.
+
+1. If the caller left `service_url` empty, starts the bundled mock service on `localhost:4300`.
+2. POSTs a small trigger to `<service_url>/check-contract` and expects a 2xx.
+3. Done. A non-2xx or an unreachable service fails the run so it is visible; anything past that point
+   is the service's responsibility.
+
+Because only a pointer is sent, the workflow never checks out the plugin repo and needs no write
+permission on it — `permissions: contents: read` is the whole requirement.
+
+---
+
+## Adding this to a plugin repo
 
 ```txt
-.buildfire/
+.github/workflows/check-plugin-contract.yml
 ```
-
-Generated files:
-
-```txt
-.buildfire/plugin.plan.json
-.buildfire/plugin.index.json
-.buildfire/plugin.mcp.json
-```
-
-These files help Plugin Studio, MCP tools, ChatGPT Apps, and AI assistants understand:
-
-- How the plugin works
-- What files exist
-- How widget and control code are structured
-- What datastore keys and schemas are used
-- What plugin data operations are safe for AI/MCP tools
-- What operations require human confirmation
-- What data should never be changed automatically
-
-These files are not runtime plugin files. They are BuildFire metadata files used for AI-assisted generation, updates, MCP workflows, and safe plugin data operations.
-
----
-
-## Metadata files
-
-### `.buildfire/plugin.plan.json`
-
-Deep architectural memory for Plugin Studio and future AI-assisted updates.
-
-This file explains:
-
-- Plugin purpose
-- Runtime architecture
-- Widget behavior
-- Control panel behavior
-- Data contracts
-- BuildFire SDK usage
-- Important execution flows
-- File responsibilities
-- Update guidance
-- High-risk areas
-
-This is the main architectural brain of the plugin.
-
----
-
-### `.buildfire/plugin.index.json`
-
-Compact semantic file manifest.
-
-This file helps AI quickly understand:
-
-- What files exist
-- What each file is responsible for
-- Which files are related to widget, control, resources, or config
-- Which files are relevant to data operations
-- Which files are safe or risky to modify
-
-This file should stay compact so AI can quickly decide which files need to be read during future updates.
-
----
-
-### `.buildfire/plugin.mcp.json`
-
-Compact MCP-safe data operation contract.
-
-This file helps MCP tools and ChatGPT Apps safely manage plugin data.
-
-It focuses on:
-
-- Data stores
-- Data schemas
-- Safe create/update/remove operations
-- Dangerous fields
-- Identity fields
-- Required human confirmations
-- Unsupported operations
-- Safe and unsafe examples
-
-This file should not contain full UI architecture or source file evidence. That belongs in `plugin.plan.json` and `plugin.index.json`.
-
----
-
-## How to use this workflow in a plugin repo
-
-In the plugin repository, add this file:
-
-```txt
-.github/workflows/generate-buildfire-plugin-metadata.yml
-```
-
-Use this content:
 
 ```yaml
-name: Generate BuildFire Plugin Metadata
+name: Check Plugin Contract
 
 on:
+  push:
+    # BuildFire plugin repos are split between the two: chatPlugin is on main, communityWall and
+    # freeTextQuestionnairePlugin are on master. Listing both means one caller file works everywhere;
+    # a repo only has one of them, so this does not double-fire.
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
-  generate:
+  check-contract:
     uses: BuildFire/github-workflows/.github/workflows/generate-buildfire-plugin-metadata.yml@main
     secrets: inherit
+    with:
+      # Leave empty to use the bundled mock until a real service exists. Set this once it does.
+      service_url: ''
 ```
 
-Commit the file.
+(The reusable workflow's filename is `generate-buildfire-plugin-metadata.yml` for historical reasons —
+every plugin repo's caller references that exact path, so it stays put until every caller is updated
+alongside a rename.)
 
-Then run it manually from the plugin repo:
+---
+
+## Trigger contract (v0)
+
+This is what the workflow sends. It is a starting point, not a settled spec — expect it to change once
+the real service is designed, and update the workflow and `mock-service/server.js` alongside it.
+
+**Request** (`POST /check-contract`):
+
+```json
+{
+  "repository": "BuildFire/chatPlugin",
+  "ref": "refs/heads/main",
+  "sha": "a1b2c3d4e5f6",
+  "event": "push"
+}
+```
+
+All four fields are required; the mock rejects a trigger missing any of them with a 400, so a payload
+that loses a field fails the run rather than looking like it worked.
+
+If `CONTRACT_SERVICE_TOKEN` is set, it is sent as `Authorization: Bearer <token>`. It is optional so the
+mock path works without one, but a real endpoint that opens pull requests on demand should not be
+callable by anyone who knows the URL.
+
+**Response:** any 2xx means accepted (the mock returns `202` with `{accepted, repository, sha}`). The
+workflow does not wait for the service to finish generating files or opening the PR.
+
+---
+
+## What the service is expected to do
+
+Not built yet — this is the side of the contract whoever writes the service picks up. The trigger only
+says *which commit landed where*, so everything below happens server-side:
+
+1. **Get the files.** Clone the repo at `sha` (or read it through the GitHub Contents API). Note the
+   layout varies: most plugins keep `widget/` and `control/` at the repo root, but webpack-built ones
+   (e.g. `freeTextQuestionnairePlugin`) only produce that as gitignored build output and keep the real
+   source under `src/widget` / `src/control`. Check root first, then `src/`.
+2. **Work out what is missing.** `widget/plugin.contract.json` always; `plugin.contract.js` and
+   `contract.html` per side, for whichever sides declare function operations. See
+   [Plugin Contract](https://sdk.buildfire.com/docs/plugin-contract).
+3. **Open a PR** with the files it generated, against the branch in `ref`. If nothing needs changing,
+   do nothing — no empty PRs.
+
+**Credentials.** This is the part the workflow deliberately does not hold: the service needs its own
+GitHub App or PAT with `contents: write` and `pull_requests: write` on the plugin repos. The workflow
+runs with `contents: read` and cannot open a PR even if it wanted to.
+
+**Idempotency.** A push to the same branch fires again on every commit, so re-triggering must not stack
+duplicate PRs — reuse one branch per repo (the old workflow used `chore/update-plugin-contract`) and
+update it rather than opening a second.
+
+**Worth having:** a dry-run mode that reads the repo and reports what it *would* change without opening
+a PR — the same shape the bundled mock already produces, so it is a way to exercise the real service's
+credentials and generation logic without PR noise. The mock covers everything up to that point;
+generating the file contents and opening the PR are the parts it cannot stand in for.
+
+---
+
+## Testing with the mock service
+
+`mock-service/server.js` has no dependencies (Node built-ins only), so the workflow starts it with a
+bare `node` call — no `npm install` step.
+
+It goes as far as a mock usefully can:
 
 ```txt
-Actions → Generate BuildFire Plugin Metadata → Run workflow
+trigger -> clone the repo at the sha -> report which contract files are missing -> [open a PR]
+                                                                                    ^ not this
 ```
 
-If metadata files are created or changed, the workflow opens a pull request in the plugin repo.
+`cloneAtSha()` and `inspectContractFiles()` are written to be lifted straight into the real service —
+shallow single-commit fetch, root detection (`.` then `src/`), and the five contract paths. What the
+mock will not do is open the pull request: that needs write credentials it has no business holding.
+It reports what it *would* open instead.
 
----
+A clone failure is reported in the response rather than returned as a non-2xx. Delivering the trigger
+is the workflow's job and it succeeded; a clone failure is the service's problem (usually credentials)
+and should not read as "the workflow is broken".
 
-## Required secrets
+```sh
+node mock-service/server.js          # listens on :4300 (PORT to override, GITHUB_TOKEN to auth clones)
+curl http://localhost:4300/health    # -> ok
 
-The BuildFire organization must provide these GitHub Actions secrets:
-
-```txt
-PLUGIN_AI_METADATA_OPENAI_API_KEY
-PLUGIN_AI_METADATA_GH_TOKEN
+curl -X POST http://localhost:4300/check-contract \
+  -H 'Content-Type: application/json' \
+  -d '{"repository":"BuildFire/chatPlugin","ref":"refs/heads/main","sha":"<a real sha>","event":"push"}'
 ```
 
-### `PLUGIN_AI_METADATA_OPENAI_API_KEY`
+```json
+{
+  "accepted": true,
+  "repository": "BuildFire/chatPlugin",
+  "sha": "3bab761e",
+  "inspection": {
+    "root": ".",
+    "existing": [],
+    "missing": ["widget/plugin.contract.json", "widget/plugin.contract.js", "..."]
+  }
+}
+```
 
-Used by Codex/OpenAI to scan the plugin and generate BuildFire metadata.
-
-### `PLUGIN_AI_METADATA_GH_TOKEN`
-
-Used to checkout this private shared workflow repository.
-
-The token only needs read access to this repo.
-
----
-
-## Important notes
-
-- The workflow is manual only for now.
-- It does not run automatically on every push.
-- It should only create or update files inside `.buildfire/`.
-- It should not modify plugin runtime source code.
-- Engineers should review the generated PR before merging.
-- Older repos may still contain `ai/`, but `.buildfire/` is the new standard location.
+Verified against both layouts: `chatPlugin` resolves `root: "."`, `freeTextQuestionnairePlugin`
+resolves `root: "src"`.
 
 ---
 
-## Current repo structure
+## Secrets
+
+### `PLUGIN_AI_METADATA_GH_TOKEN` (optional)
+
+Only used to check out this repo for the bundled mock service. The real-service path checks out nothing,
+so once `service_url` is set this is not needed at all. Named from the old Codex-based flow this
+replaced — kept as-is so every plugin repo's `secrets: inherit` keeps working without an org-secret
+rename.
+
+### `CONTRACT_SERVICE_TOKEN` (optional)
+
+Sent as `Authorization: Bearer <token>` when present, so the service can verify the caller. Worth
+setting before the real service goes live.
+
+The old `PLUGIN_AI_METADATA_OPENAI_API_KEY` secret is no longer used by this workflow and can be left
+alone or removed at the org level independently.
+
+---
+
+## What's no longer part of this workflow
+
+The previous version of this repo generated three AI-inferred files
+(`.buildfire/plugin.plan.json`, `.buildfire/plugin.index.json`, `.buildfire/plugin.mcp.json`) by
+running Codex inline in the Action, driven by `prompts/buildfire-plugin-metadata.prompt.md`.
+
+That prompt file is kept for now — it may be a useful starting point for whoever builds the real
+contract-check service, since much of its "read the plugin deeply, don't invent behavior, prefer
+omission over hallucination" guidance still applies. It is no longer read by this workflow directly.
+
+`.buildfire/*.json` and `plugin.contract.json` describe overlapping things (a plugin's data
+operations and their safety). Worth deciding, before building the real service, whether both should
+keep existing or whether the contract-check service should be the one source of truth.
+
+---
+
+## Repo structure
 
 ```txt
 BuildFire/github-workflows
-├── .github/
-│   └── workflows/
-│       └── generate-buildfire-plugin-metadata.yml
+├── .github/workflows/
+│   └── generate-buildfire-plugin-metadata.yml   the reusable workflow
+├── mock-service/
+│   └── server.js                                 stand-in service for testing
 ├── prompts/
-│   └── buildfire-plugin-metadata.prompt.md
+│   └── buildfire-plugin-metadata.prompt.md       retained; see "What's no longer part of this workflow"
 └── README.md
 ```
-
----
-
-## Recommended plugin repo output
-
-After running the workflow, a plugin repo should include:
-
-```txt
-.buildfire/
-├── plugin.plan.json
-├── plugin.index.json
-└── plugin.mcp.json
-```
-
----
-
-## File responsibilities
-
-### `plugin.plan.json`
-
-Use this file when the AI needs deep plugin context.
-
-Best for:
-
-- Understanding the plugin architecture
-- Planning code updates
-- Understanding widget/control behavior
-- Understanding data flow
-- Understanding high-risk areas
-- Maintaining backward compatibility
-- Supporting future Plugin Studio updates
-
-This file can be detailed.
-
----
-
-### `plugin.index.json`
-
-Use this file when the AI needs a quick file map.
-
-Best for:
-
-- Deciding which files to read
-- Finding entry points
-- Understanding file responsibilities
-- Avoiding unnecessary full-repo scans
-- Reducing token usage during future updates
-
-This file should stay compact.
-
----
-
-### `plugin.mcp.json`
-
-Use this file when MCP tools or ChatGPT Apps need to safely manage plugin data.
-
-Best for:
-
-- Reading plugin data
-- Creating records
-- Updating records
-- Removing or archiving records when supported
-- Understanding required confirmation rules
-- Preventing unsafe data changes
-
-This file should stay compact and operation-focused.
-
-It should not include:
-
-- Full UI architecture
-- CSS details
-- Long file explanations
-- Source file evidence
-- Implementation-heavy details unless required for data safety
-
----
-
-## MCP safety expectations
-
-The generated `.buildfire/plugin.mcp.json` should be conservative.
-
-It should clearly define:
-
-- What data can be managed
-- Where data is stored
-- What fields exist
-- Which fields are safe to update
-- Which fields are dangerous
-- Which fields are identity fields
-- Which operations are allowed
-- Which operations require confirmation
-- Which operations are unsupported
-- What examples are safe or unsafe
-
-For destructive or risky actions, MCP should require human confirmation.
-
-Examples of actions that should usually require confirmation:
-
-- Removing records
-- Bulk updates
-- Bulk removes
-- Changing identity fields
-- Changing read-only/system-managed fields
-- Schema changes
-- Any operation with low confidence
-
----
-
-## Naming standard
-
-The standard metadata folder is:
-
-```txt
-.buildfire/
-```
-
-The standard metadata files are:
-
-```txt
-.buildfire/plugin.plan.json
-.buildfire/plugin.index.json
-.buildfire/plugin.mcp.json
-```
-
-Do not use `ai/` for new plugin metadata.
-
-Older repositories may still have:
-
-```txt
-ai/
-```
-
-But new metadata should be generated under:
-
-```txt
-.buildfire/
-```
-
----
-
-## Workflow behavior
-
-The reusable workflow:
-
-1. Checks out the plugin repo.
-2. Checks out this shared workflow repo.
-3. Runs Codex using the shared metadata prompt.
-4. Generates or updates `.buildfire/` metadata files.
-5. Opens a pull request if files changed.
-
-The workflow should not directly push to the default branch.
-
----
-
-## Pull request behavior
-
-If metadata changes are detected, the workflow creates a PR with the updated files.
-
-The PR should include:
-
-```txt
-.buildfire/plugin.plan.json
-.buildfire/plugin.index.json
-.buildfire/plugin.mcp.json
-```
-
-Engineers should review the generated metadata before merging.
-
-Review focus:
-
-- Confirm the plugin purpose is accurate.
-- Confirm datastore keys and schemas are correct.
-- Confirm risky operations are marked correctly.
-- Confirm MCP remove/update operations require confirmation where needed.
-- Confirm no runtime source code was modified.
-
----
-
-## Recommended reusable workflow name
-
-```txt
-.github/workflows/generate-buildfire-plugin-metadata.yml
-```
-
-Recommended prompt file name:
-
-```txt
-prompts/buildfire-plugin-metadata.prompt.md
-```
-
----
-
-## Example plugin repo workflow
-
-```yaml
-name: Generate BuildFire Plugin Metadata
-
-on:
-  workflow_dispatch:
-
-jobs:
-  generate:
-    uses: BuildFire/github-workflows/.github/workflows/generate-buildfire-plugin-metadata.yml@main
-    secrets: inherit
-```
-
----
-
-## Required organization secrets
-
-### `PLUGIN_AI_METADATA_OPENAI_API_KEY`
-
-OpenAI API key used by Codex to generate metadata.
-
-### `PLUGIN_AI_METADATA_GH_TOKEN`
-
-GitHub token used to checkout the private shared workflow repository.
-
-Recommended permissions:
-
-- Read access to `BuildFire/github-workflows`
-- Minimum required repo access for workflow checkout
-
----
-
-## Future support
-
-Planned future workflows may include:
-
-- Incremental BuildFire metadata updates
-- Lightweight metadata generation
-- Plugin QC test generation
-- Playwright-based plugin validation
-- MCP contract validation
-- Plugin Studio compatibility checks
-- Automated checks to confirm `.buildfire/plugin.mcp.json` is safe and compact
-- Automated checks to confirm `.buildfire/plugin.plan.json` and `.buildfire/plugin.index.json` stay in sync
