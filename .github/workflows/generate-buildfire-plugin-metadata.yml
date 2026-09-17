@@ -53,6 +53,11 @@ jobs:
         with:
           repository: BuildFire/github-workflows
           path: shared-automation
+          # Without this, checkout takes the default branch while THIS file was loaded from whatever ref
+          # the caller pinned — so a caller on @some-branch would run this workflow's code against main's
+          # mock service. job_workflow_sha is the commit of the reusable workflow actually executing, so
+          # the scripts on disk always match the workflow running them.
+          ref: ${{ github.job_workflow_sha }}
           # This repo is public, so the runner's own token can read it and no secret is needed. The
           # fallback is kept for the day it goes private: set PLUGIN_AI_METADATA_GH_TOKEN then.
           # Passing an empty `token:` is not the same as omitting it - checkout rejects it outright.
