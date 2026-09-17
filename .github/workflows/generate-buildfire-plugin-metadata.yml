@@ -68,19 +68,6 @@ jobs:
           # Passing an empty `token:` is not the same as omitting it - checkout rejects it outright.
           token: ${{ secrets.PLUGIN_AI_METADATA_GH_TOKEN || github.token }}
 
-      # Temporary: the checkout silently taking the wrong ref is hard to see from a MODULE_NOT_FOUND
-      # further down, so make what landed on disk explicit. Remove once this is settled.
-      - name: Debug shared-automation checkout
-        if: inputs.service_url == ''
-        run: |
-          echo "job_workflow_sha : '${{ github.job_workflow_sha }}'"
-          echo "workflow_ref     : '${{ github.workflow_ref }}'"
-          echo "workflow_sha     : '${{ github.workflow_sha }}'"
-          echo "--- shared-automation/ ---"
-          ls -la shared-automation/ 2>&1 || echo "MISSING"
-          echo "--- checked-out commit ---"
-          git -C shared-automation log --oneline -1 2>&1 || echo "no git metadata"
-
       # Backgrounded so it outlives this step — steps in a job share the same runner process tree, so it
       # stays up for the notify step below. Zero dependencies, so no npm install is needed to start it.
       - name: Start bundled mock service
@@ -149,3 +136,9 @@ jobs:
             "${auth_header[@]}" \
             --max-time 120 \
             -d "$payload"
+
+      # The mock logs to a file so it can run in the background; without this the clone and inspection
+      # are invisible on success. `always()` so a failed notify step still shows what the mock saw.
+      - name: Show mock service log
+        if: always() && inputs.service_url == ''
+        run: cat mock-service.log 2>/dev/null || echo "(no mock service log - the real service was used)"

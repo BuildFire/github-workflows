@@ -277,6 +277,18 @@ function handleTrigger(trigger, callback) {
             return callback(null, { error: err.message });
         }
 
+        // What the clone actually produced. Without this the clone is invisible on success - you only
+        // ever see it when it fails - so there is no way to tell a correct checkout from a lucky one.
+        try {
+            const entries = fs.readdirSync(repoDir, { withFileTypes: true })
+                .filter((entry) => entry.name !== '.git')
+                .map((entry) => entry.isDirectory() ? entry.name + '/' : entry.name)
+                .sort();
+            console.log('mock-service: cloned ' + entries.length + ' top-level entries: ' + entries.join(', '));
+        } catch (e) {
+            console.error('mock-service: could not list the checkout: ' + e.message);
+        }
+
         let inspection;
         try {
             inspection = inspectContractFiles(repoDir);
