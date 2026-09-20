@@ -1,4 +1,5 @@
-# Local, uncommitted config for mock-service/run-local.sh - holds real tokens.
-# This repo is public; nothing here may ever be tracked.
-mock-service/local.env
-mock-service.log
+# The mock contract-check service lives outside this repo (a sibling directory), so the token file it
+# reads is no longer anywhere near here. Kept as a guard: this repo is public, and a stray local.env
+# copied back in must never be tracked.
+local.env
+**/local.env

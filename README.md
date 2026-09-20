@@ -20,10 +20,15 @@ The split matters: **the service does the work, the workflow only triggers it.**
 reads the plugin's files and never opens a PR, so it needs no write access to the repo — the service
 carries its own GitHub credentials.
 
-**The contract-check service does not exist yet.** Until it does, every plugin repo runs against a
-small mock bundled in this repo (`mock-service/`). It clones the repo and reports which contract files
-are missing — everything the real service does except opening the PR — so the flow is verifiable now,
-and its clone/inspect functions are written to be lifted into the real service later.
+**The contract-check service does not exist yet.** Until it does, `../mock-service/server.js` stands in
+for it. It runs *outside* GitHub — on your machine behind a tunnel, or on any host you point
+`service_url` at — exactly as the real service will. It clones the repo and reports which contract
+files are missing, which is everything the real service does except generating the file contents, and
+its clone/inspect functions are written to be lifted into the real service later.
+
+The workflow itself never runs the mock. It only ever sends one HTTP request to whatever
+`service_url` names, so there is a single code path whether the far end is the mock or the real
+service.
 
 ---
 
@@ -33,13 +38,19 @@ The workflow does not inspect the plugin and does not open the pull request. It 
 service that a commit landed; the service reads the repo through the GitHub API, decides what the
 contract files should be, and opens the PR under its own credentials.
 
-1. If the caller left `service_url` empty, starts the bundled mock service on `localhost:4300`.
-2. POSTs a small trigger to `<service_url>/check-contract` and expects a 2xx.
-3. Done. A non-2xx or an unreachable service fails the run so it is visible; anything past that point
+1. POSTs a small trigger to `<service_url>/check-contract` and expects a 2xx.
+2. Done. A non-2xx or an unreachable service fails the run so it is visible; anything past that point
    is the service's responsibility.
 
-Because only a pointer is sent, the workflow never checks out the plugin repo and needs no write
-permission on it — `permissions: contents: read` is the whole requirement.
+That is the entire job — one request, one step. Because only a pointer is sent, the workflow checks
+out nothing (not the plugin, not this repo) and needs no write permission anywhere;
+`permissions: contents: read` is the whole requirement.
+
+**Callers do not set `service_url`.** The shared endpoint lives in `DEFAULT_SERVICE_URL` in the
+reusable workflow, so it can be changed for every plugin repo in one place. Override the input per
+repo only to reach a service you are running yourself. Passing it empty is the same as omitting it —
+that keeps callers written against the older `service_url: ''` convention working, with a warning
+annotation asking for the input to be dropped.
 
 ---
 
@@ -64,9 +75,6 @@ jobs:
   check-contract:
     uses: BuildFire/github-workflows/.github/workflows/generate-buildfire-plugin-metadata.yml@main
     secrets: inherit
-    with:
-      # Leave empty to use the bundled mock until a real service exists. Set this once it does.
-      service_url: ''
 ```
 
 (The reusable workflow's filename is `generate-buildfire-plugin-metadata.yml` for historical reasons —
@@ -78,7 +86,7 @@ alongside a rename.)
 ## Trigger contract (v0)
 
 This is what the workflow sends. It is a starting point, not a settled spec — expect it to change once
-the real service is designed, and update the workflow and `mock-service/server.js` alongside it.
+the real service is designed, and update the workflow and `../mock-service/server.js` alongside it.
 
 **Request** (`POST /check-contract`):
 
@@ -127,7 +135,7 @@ duplicate PRs — reuse one branch per repo (the old workflow used `chore/update
 update it rather than opening a second.
 
 **Worth having:** a dry-run mode that reads the repo and reports what it *would* change without opening
-a PR — the same shape the bundled mock already produces, so it is a way to exercise the real service's
+a PR — the same shape the mock already produces, so it is a way to exercise the real service's
 credentials and generation logic without PR noise. The mock covers everything up to that point;
 generating the file contents and opening the PR are the parts it cannot stand in for.
 
@@ -135,8 +143,9 @@ generating the file contents and opening the PR are the parts it cannot stand in
 
 ## Testing with the mock service
 
-`mock-service/server.js` has no dependencies (Node built-ins only), so the workflow starts it with a
-bare `node` call — no `npm install` step.
+`../mock-service/server.js` has no dependencies (Node built-ins only), so it starts with a bare `node`
+call — no `npm install` step. You run it yourself, on your machine or any host; the workflow never
+starts it.
 
 It walks the whole path:
 
@@ -151,7 +160,7 @@ shallow single-commit fetch, verification that `HEAD` is the commit the trigger 
 The PR step is **demo scaffolding**, off unless `OPEN_PR=true`. Two things keep it a stand-in rather
 than the real thing:
 
-- it borrows the CI runner's token instead of carrying the service's own credentials
+- it uses whatever `GITHUB_TOKEN` you export, rather than credentials belonging to a service
 - **it does not generate anything from the plugin's code.** `stubFor()` branches on the *filename*
   alone and returns the same placeholder every time, stamped `MOCK — ... not a real contract`. That
   function is the seam where real generation slots in; its signature gives it away, since a path is not
@@ -165,12 +174,8 @@ A clone failure is reported in the response rather than returned as a non-2xx. D
 is the workflow's job and it succeeded; a clone failure is the service's problem (usually credentials)
 and should not read as "the workflow is broken".
 
-A clone failure is reported in the response rather than returned as a non-2xx. Delivering the trigger
-is the workflow's job and it succeeded; a clone failure is the service's problem (usually credentials)
-and should not read as "the workflow is broken".
-
 ```sh
-node mock-service/server.js          # listens on :4300 (PORT to override, GITHUB_TOKEN to auth clones)
+node ../mock-service/server.js          # listens on :4300 (PORT to override, GITHUB_TOKEN to auth clones)
 curl http://localhost:4300/health    # -> ok
 
 curl -X POST http://localhost:4300/check-contract \
@@ -198,19 +203,33 @@ resolves `root: "src"`.
 
 ## Developing against a local service (ngrok)
 
-The bundled mock runs *inside* the runner, so GitHub never reaches your machine. To iterate on the real
-service locally instead, expose your machine and point `service_url` at it — the workflow then skips the
-bundled mock entirely and never checks this repo out.
+The service always runs outside GitHub, so until a real one is hosted, "the service" is a process on
+your machine. GitHub cannot reach your laptop directly, so expose it with a tunnel and point
+`service_url` at that URL.
 
 ```sh
-# 1. run the service locally, with a token so it can clone and open PRs
-export GITHUB_TOKEN=ghp_...              # PAT with repo access
+# 1. configure once — local.env is gitignored, so the token is never tracked
+cp ../mock-service/local.env.example ../mock-service/local.env
+$EDITOR ../mock-service/local.env           # set CONTRACT_SERVICE_TOKEN; GITHUB_TOKEN is optional
+
+# 2. run the service                     (terminal 1)
+../mock-service/run-local.sh
+
+# 3. expose it                           (terminal 2)
+ngrok http 4300                          # -> https://<something>.ngrok-free.app
+```
+
+`run-local.sh` loads `local.env`, defaults `OPEN_PR=true`, and — if you set no `GITHUB_TOKEN` — pulls
+one from your git credential helper, on the reasoning that if you can already push to a repo you can
+already clone it and open PRs against it. Anything you export yourself wins over the file.
+
+Equivalent by hand, if you would rather not use the script:
+
+```sh
+export GITHUB_TOKEN=ghp_...              # PAT with Contents and Pull requests read/write
 export CONTRACT_SERVICE_TOKEN=$(openssl rand -hex 16)
 export OPEN_PR=true                      # omit to report findings without opening PRs
-node mock-service/server.js
-
-# 2. expose it
-ngrok http 4300                          # -> https://<something>.ngrok-free.app
+node ../mock-service/server.js
 ```
 
 Then in the plugin repo: add `CONTRACT_SERVICE_TOKEN` as a repo secret with the same value, and set the
@@ -226,23 +245,15 @@ building the generation logic, since you can edit `stubFor()` and re-push withou
 
 **Set `CONTRACT_SERVICE_TOKEN`.** A tunnelled endpoint that opens pull requests is callable by anyone who
 learns the URL. The server enforces the bearer token whenever the variable is set, ignores it when unset
-(so the in-runner localhost path still works), and warns loudly at startup if it is exposed with
+(so a purely local `curl` still works), and warns loudly at startup if it is exposed with
 `OPEN_PR=true` and no token.
 
-Two things differ from the in-runner path: the health check and log-dump steps are skipped, since they
-only apply to the bundled mock; and `GITHUB_TOKEN` is whatever PAT you export rather than the runner's
-scoped token, so the clone falls back to your local git credentials if you leave it unset.
+Note that `GITHUB_TOKEN` here is whatever PAT you export, so the clone falls back to your local git
+credentials if you leave it unset.
 
 ---
 
 ## Secrets
-
-### `PLUGIN_AI_METADATA_GH_TOKEN` (optional)
-
-Only used to check out this repo for the bundled mock service. The real-service path checks out nothing,
-so once `service_url` is set this is not needed at all. Named from the old Codex-based flow this
-replaced — kept as-is so every plugin repo's `secrets: inherit` keeps working without an org-secret
-rename.
 
 ### `CONTRACT_SERVICE_TOKEN` (optional)
 
@@ -276,9 +287,23 @@ keep existing or whether the contract-check service should be the one source of 
 BuildFire/github-workflows
 ├── .github/workflows/
 │   └── generate-buildfire-plugin-metadata.yml   the reusable workflow
-├── mock-service/
-│   └── server.js                                 stand-in service for testing
 ├── prompts/
-│   └── buildfire-plugin-metadata.prompt.md       retained; see "What's no longer part of this workflow"
+│   └── buildfire-plugin-metadata.prompt.md      retained; see "What's no longer part of this workflow"
 └── README.md
 ```
+
+The mock service is **not part of this repo**. It is a local development tool, and the workflow no
+longer runs it, so it lives in a sibling directory that is never pushed here:
+
+```txt
+source/
+├── github-workflows/        this repo
+└── mock-service/            not tracked anywhere
+    ├── server.js            stand-in service; you run it, the workflow does not
+    ├── run-local.sh         one-command local runner (loads local.env)
+    ├── local.env.example    copy to local.env
+    └── local.env            your tokens — outside this public repo by design
+```
+
+Paths in this README are written relative to the repo root, so they start with `../`. Keeping the two
+side by side is what those paths assume; move the mock elsewhere and adjust accordingly.
