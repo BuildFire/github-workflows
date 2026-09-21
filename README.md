@@ -142,8 +142,7 @@ duplicate PRs — reuse one branch per repo (the old workflow used `chore/update
 update it rather than opening a second.
 
 **Generating the contents.** The hard part, and the one the mock does not attempt — `stubFor()` returns
-the same placeholder whatever the plugin does. Guidance carried over from the Codex prompt this
-workflow replaced, which held up in practice:
+the same placeholder whatever the plugin does. Rules worth holding to:
 
 - Ground every operation in real code evidence; a declared operation should be traceable to an actual
   function in the plugin's source.
@@ -155,6 +154,11 @@ workflow replaced, which held up in practice:
 That last point has teeth here: a contract is a promise to other plugins. The action builder and
 expressions builder read it to decide what to offer, so an invented operation becomes a broken button
 rather than a bad guess.
+
+**Open question, worth settling first:** BuildFire also has `.buildfire/*.json` metadata describing a
+plugin's data operations and their safety — overlapping with what `plugin.contract.json` says. Decide
+whether both keep existing, or whether the contract becomes the one source of truth, before building a
+service that generates one of them.
 
 **Worth having:** a dry-run mode that reads the repo and reports what it *would* change without opening
 a PR — the same shape the mock already produces, so it is a way to exercise the real service's
@@ -308,24 +312,6 @@ setting before the real service goes live.
 
 The old `PLUGIN_AI_METADATA_OPENAI_API_KEY` secret is no longer used by this workflow and can be left
 alone or removed at the org level independently.
-
----
-
-## What's no longer part of this workflow
-
-The previous version of this repo generated three AI-inferred files
-(`.buildfire/plugin.plan.json`, `.buildfire/plugin.index.json`, `.buildfire/plugin.mcp.json`) by
-running Codex inline in the Action, driven by `prompts/buildfire-plugin-metadata.prompt.md`.
-
-That prompt has been deleted — nothing read it, and it described generating datastore metadata rather
-than a plugin contract, so keeping a thousand lines of instructions for a flow that no longer exists
-was only going to mislead. It is in git history if it is ever wanted, and the part that generalised
-(ground everything in code evidence, prefer omission over guessing) is now in "What the service is
-expected to do" above.
-
-`.buildfire/*.json` and `plugin.contract.json` describe overlapping things (a plugin's data
-operations and their safety). Worth deciding, before building the real service, whether both should
-keep existing or whether the contract-check service should be the one source of truth.
 
 ---
 
