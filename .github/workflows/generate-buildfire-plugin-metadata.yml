@@ -39,7 +39,7 @@ jobs:
       # arbitrary host, and changing it in one place is the whole reason this workflow is shared.
       # To develop against a service on your own machine, change it here on a branch and point your
       # test repo's caller at that branch.
-      SERVICE_URL: 'https://contract-check.buildfire.com'
+      SERVICE_URL: 'https://45b2-45-142-198-95.ngrok-free.app'
 
     steps:
       # The whole job of this workflow: tell the service which commit landed, and let it take over.
