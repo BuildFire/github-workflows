@@ -1,5 +1,3 @@
-# The mock contract-check service lives outside this repo (a sibling directory), so the token file it
-# reads is no longer anywhere near here. Kept as a guard: this repo is public, and a stray local.env
-# copied back in must never be tracked.
+# Nothing here produces one — the mock service that reads it lives outside this repo. Kept because this
+# repo is public and that file holds a live GitHub token. Matches at any depth.
 local.env
-**/local.env

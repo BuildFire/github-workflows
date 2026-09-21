@@ -22,12 +22,12 @@ carries its own GitHub credentials.
 
 **The contract-check service does not exist yet.** Until it does, `../mock-service/server.js` stands in
 for it. It runs *outside* GitHub — on your machine behind a tunnel, or on any host you point
-`service_url` at — exactly as the real service will. It clones the repo and reports which contract
+`SERVICE_URL` at — exactly as the real service will. It clones the repo and reports which contract
 files are missing, which is everything the real service does except generating the file contents, and
 its clone/inspect functions are written to be lifted into the real service later.
 
 The workflow itself never runs the mock. It only ever sends one HTTP request to whatever
-`service_url` names, so there is a single code path whether the far end is the mock or the real
+`SERVICE_URL` names, so there is a single code path whether the far end is the mock or the real
 service.
 
 ---
@@ -38,7 +38,7 @@ The workflow does not inspect the plugin and does not open the pull request. It 
 service that a commit landed; the service reads the repo through the GitHub API, decides what the
 contract files should be, and opens the PR under its own credentials.
 
-1. POSTs a small trigger to `<service_url>/check-contract` and expects a 2xx.
+1. POSTs a small trigger to `<SERVICE_URL>/check-contract` and expects a 2xx.
 2. Done. A non-2xx or an unreachable service fails the run so it is visible; anything past that point
    is the service's responsibility.
 
@@ -46,11 +46,12 @@ That is the entire job — one request, one step. Because only a pointer is sent
 out nothing (not the plugin, not this repo) and needs no write permission anywhere;
 `permissions: contents: read` is the whole requirement.
 
-**Callers do not set `service_url`.** The shared endpoint lives in `DEFAULT_SERVICE_URL` in the
-reusable workflow, so it can be changed for every plugin repo in one place. Override the input per
-repo only to reach a service you are running yourself. Passing it empty is the same as omitting it —
-that keeps callers written against the older `service_url: ''` convention working, with a warning
-annotation asking for the input to be dropped.
+**The endpoint is not a caller input.** It is fixed in `SERVICE_URL` in the reusable workflow, so
+every plugin repo points at the same service and moving it is a one-line change here. A plugin repo
+cannot redirect the check at an arbitrary host, and there is no per-repo drift to chase.
+
+To develop against a service on your own machine, change `SERVICE_URL` on a branch and point your test
+repo's caller at that branch — see "Developing against a local service".
 
 ---
 
@@ -205,10 +206,10 @@ resolves `root: "src"`.
 
 The service always runs outside GitHub, so until a real one is hosted, "the service" is a process on
 your machine. GitHub cannot reach your laptop directly, so expose it with a tunnel and point
-`service_url` at that URL.
+`SERVICE_URL` at that URL — on a branch, since it is shared by every plugin repo.
 
 ```sh
-# 1. configure once — local.env is gitignored, so the token is never tracked
+# 1. configure once — local.env sits outside any repo, so the token is never committed
 cp ../mock-service/local.env.example ../mock-service/local.env
 $EDITOR ../mock-service/local.env           # set CONTRACT_SERVICE_TOKEN; GITHUB_TOKEN is optional
 
@@ -232,16 +233,27 @@ export OPEN_PR=true                      # omit to report findings without openi
 node ../mock-service/server.js
 ```
 
-Then in the plugin repo: add `CONTRACT_SERVICE_TOKEN` as a repo secret with the same value, and set the
-caller's input:
+Then point the workflow at the tunnel. `SERVICE_URL` is shared by every plugin repo, so change it on a
+branch rather than on `main`:
 
-```yaml
-    with:
-      service_url: 'https://<something>.ngrok-free.app'
+```sh
+# 4. in this repo, on a working branch      (terminal 3)
+git checkout -b local-service
+sed -i '' "s|SERVICE_URL: .*|SERVICE_URL: 'https://<something>.ngrok-free.app'|" \
+  .github/workflows/generate-buildfire-plugin-metadata.yml
+git commit -am "Point at a local service" && git push -u origin local-service
 ```
 
-Push, and the trigger lands on your laptop with a real commit from a real repo — the fastest loop for
-building the generation logic, since you can edit `stubFor()` and re-push without touching CI.
+and have your test repo's caller use that branch:
+
+```yaml
+    uses: BuildFire/github-workflows/.github/workflows/generate-buildfire-plugin-metadata.yml@local-service
+```
+
+Push to the test repo, and the trigger lands on your laptop with a real commit from a real repo — the
+fastest loop for building the generation logic, since you can edit `stubFor()` and re-push without
+touching CI. The tunnel URL changes every time ngrok restarts, so step 4 repeats each session; only
+the branch reference in the caller stays put.
 
 **Set `CONTRACT_SERVICE_TOKEN`.** A tunnelled endpoint that opens pull requests is callable by anyone who
 learns the URL. The server enforces the bearer token whenever the variable is set, ignores it when unset

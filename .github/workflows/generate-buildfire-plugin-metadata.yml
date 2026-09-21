@@ -11,23 +11,12 @@ name: Check BuildFire Plugin Contract (Reusable)
 # So there is no checkout here of anything: not the plugin, not this repo. The job sends one HTTP
 # request and finishes, which is why it needs no write access to any repository. The service runs
 # outside GitHub and carries its own credentials.
+#
+# The endpoint is fixed in SERVICE_URL below and cannot be overridden by a caller, so every plugin repo
+# is pointed at the same service and moving it is a one-line change here.
 
 on:
   workflow_call:
-    inputs:
-      service_url:
-        description: >
-          Contract-check service to notify. Leave unset: the shared endpoint in DEFAULT_SERVICE_URL
-          below is used, so changing it there changes it for every caller at once. Override this per
-          repo only to reach a service you are running yourself, e.g. a tunnel to your laptop while
-          developing (see "Developing against a local service" in the README).
-
-          Empty is treated the same as unset. Callers written against the earlier version of this
-          workflow pass `service_url: ''` to mean "use the mock" — that mode is gone, and falling back
-          rather than erroring keeps those repos working until their caller is tidied up.
-        required: false
-        type: string
-        default: ''
     secrets:
       # Shared secret the service uses to verify the caller. Optional so a local service can be run
       # without one, but a real endpoint that opens pull requests on demand should not be callable by
@@ -45,11 +34,12 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # The one place the shared endpoint is written. It lives here rather than in the input's
-      # `default:` so that an unset input and an explicitly empty one resolve identically — a
-      # `default:` is skipped when a caller passes '', which would single out exactly the repos that
-      # have not been migrated yet.
-      DEFAULT_SERVICE_URL: 'https://contract-check.buildfire.com'
+      # The one place the contract service's address is written, for every plugin repo at once.
+      # Callers cannot override it: a plugin repo should not be able to point the check at an
+      # arbitrary host, and changing it in one place is the whole reason this workflow is shared.
+      # To develop against a service on your own machine, change it here on a branch and point your
+      # test repo's caller at that branch.
+      SERVICE_URL: 'https://contract-check.buildfire.com'
 
     steps:
       # The whole job of this workflow: tell the service which commit landed, and let it take over.
@@ -57,21 +47,12 @@ jobs:
       # actor name can never be read as shell.
       - name: Notify the contract service
         env:
-          SERVICE_URL: ${{ inputs.service_url }}
           SERVICE_TOKEN: ${{ secrets.CONTRACT_SERVICE_TOKEN }}
           REPOSITORY: ${{ github.repository }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
           EVENT: ${{ github.event_name }}
         run: |
-          # Unset and empty both land on the shared endpoint. Without this an empty value would POST to
-          # "/check-contract" with no host, and curl's error for that reads as a malformed-URL problem
-          # rather than a stale-config one.
-          if [ -z "$SERVICE_URL" ]; then
-            SERVICE_URL="$DEFAULT_SERVICE_URL"
-            echo "::warning::service_url was passed empty; using the shared endpoint. Drop the input from this repo's caller."
-          fi
-
           payload=$(jq -n \
             --arg repository "$REPOSITORY" \
             --arg ref "$REF" \
