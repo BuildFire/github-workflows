@@ -82,6 +82,12 @@ jobs:
 every plugin repo's caller references that exact path, so it stays put until every caller is updated
 alongside a rename.)
 
+That is the whole caller: no `with:` block. The endpoint is not a per-repo setting, so there is
+nothing else to configure — the same file works in every plugin repo.
+
+> **While `contract-check-v2` is unmerged**, `@main` does not have any of this. Point test callers at
+> `@contract-check-v2` until it lands.
+
 ---
 
 ## Trigger contract (v0)
@@ -187,18 +193,31 @@ curl -X POST http://localhost:4300/check-contract \
 ```json
 {
   "accepted": true,
-  "repository": "BuildFire/chatPlugin",
-  "sha": "3bab761e",
+  "repository": "BuildFire/workflowTester",
+  "sha": "01b71f2...",
   "inspection": {
     "root": ".",
-    "existing": [],
-    "missing": ["widget/plugin.contract.json", "widget/plugin.contract.js", "..."]
+    "existing": ["widget/plugin.contract.json"],
+    "missing": ["widget/plugin.contract.js", "control/plugin.contract.js", "..."],
+    "fileCount": 5,
+    "checkedOutSha": "01b71f2...",
+    "shaMatchesTrigger": true,
+    "pullRequest": { "url": "https://github.com/BuildFire/workflowTester/pull/2", "branch": "chore/update-plugin-contract" }
   }
 }
 ```
 
-Verified against both layouts: `chatPlugin` resolves `root: "."`, `freeTextQuestionnairePlugin`
-resolves `root: "src"`.
+`shaMatchesTrigger` is the one that matters when something looks wrong: a listing proves the clone
+produced *something*, only this proves it produced the commit the trigger named.
+
+`pullRequest` reports what actually happened — `{url, branch}` for a new PR,
+`{updatedExisting: true, branch}` when the branch already had one open,
+`{skipped: "nothing missing, no PR needed"}` when there was nothing to do, or `{error}`.
+That third case matters: this fires on every push, so a merged contract PR must not immediately
+trigger another one.
+
+Verified against both layouts: `chatPlugin` and `workflowTester` resolve `root: "."`,
+`freeTextQuestionnairePlugin` resolves `root: "src"`.
 
 ---
 
