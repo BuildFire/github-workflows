@@ -141,6 +141,21 @@ runs with `contents: read` and cannot open a PR even if it wanted to.
 duplicate PRs — reuse one branch per repo (the old workflow used `chore/update-plugin-contract`) and
 update it rather than opening a second.
 
+**Generating the contents.** The hard part, and the one the mock does not attempt — `stubFor()` returns
+the same placeholder whatever the plugin does. Guidance carried over from the Codex prompt this
+workflow replaced, which held up in practice:
+
+- Ground every operation in real code evidence; a declared operation should be traceable to an actual
+  function in the plugin's source.
+- Do not invent behavior, datastore keys, or fields. Do not redesign or idealize the plugin — describe
+  what is there.
+- Prefer omission over guessing. An operation left out is a missing feature; one that is described
+  wrongly is a caller crashing at runtime, or the control panel offering a picker that does nothing.
+
+That last point has teeth here: a contract is a promise to other plugins. The action builder and
+expressions builder read it to decide what to offer, so an invented operation becomes a broken button
+rather than a bad guess.
+
 **Worth having:** a dry-run mode that reads the repo and reports what it *would* change without opening
 a PR — the same shape the mock already produces, so it is a way to exercise the real service's
 credentials and generation logic without PR noise. The mock covers everything up to that point;
@@ -302,9 +317,11 @@ The previous version of this repo generated three AI-inferred files
 (`.buildfire/plugin.plan.json`, `.buildfire/plugin.index.json`, `.buildfire/plugin.mcp.json`) by
 running Codex inline in the Action, driven by `prompts/buildfire-plugin-metadata.prompt.md`.
 
-That prompt file is kept for now — it may be a useful starting point for whoever builds the real
-contract-check service, since much of its "read the plugin deeply, don't invent behavior, prefer
-omission over hallucination" guidance still applies. It is no longer read by this workflow directly.
+That prompt has been deleted — nothing read it, and it described generating datastore metadata rather
+than a plugin contract, so keeping a thousand lines of instructions for a flow that no longer exists
+was only going to mislead. It is in git history if it is ever wanted, and the part that generalised
+(ground everything in code evidence, prefer omission over guessing) is now in "What the service is
+expected to do" above.
 
 `.buildfire/*.json` and `plugin.contract.json` describe overlapping things (a plugin's data
 operations and their safety). Worth deciding, before building the real service, whether both should
@@ -318,8 +335,6 @@ keep existing or whether the contract-check service should be the one source of 
 BuildFire/github-workflows
 ├── .github/workflows/
 │   └── generate-buildfire-plugin-metadata.yml   the reusable workflow
-├── prompts/
-│   └── buildfire-plugin-metadata.prompt.md      retained; see "What's no longer part of this workflow"
 └── README.md
 ```
 
